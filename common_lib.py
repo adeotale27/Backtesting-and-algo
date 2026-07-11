@@ -240,7 +240,16 @@ config_obj =  configparser.ConfigParser()
 # Use absolute path for config file
 base_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(base_dir, "configfile.ini")
-config_obj.read(config_path)
+# The example file is read first as a defaults layer so a fresh install
+# (no configfile.ini yet) can still import this module and reach the
+# /setup wizard; real config values override the placeholders.
+config_obj.read([os.path.join(base_dir, "configfile.ini.example"), config_path])
+
+if not os.path.exists(config_path):
+    logging.warning(
+        "configfile.ini not found — running on placeholder defaults from "
+        "configfile.ini.example. Complete setup at /setup before trading."
+    )
 
 login_details = config_obj["kite_login_details"]
 option_details = config_obj["option_details"]
@@ -261,12 +270,18 @@ cool_off_time = int(other_details['cool_off_time'])
 order_gtt_regular = other_details['order_gtt_regular']
 
 # [safety] live_trading — dry-run kill switch for order placement.
-# Missing section/key defaults to True so existing installs (whose
-# configfile.ini predates this section) keep trading unchanged; the shipped
-# configfile.ini.example sets it to false so FRESH setups start in dry-run
-# and must consciously enable live orders.
-live_trading_enabled = config_obj.getboolean("safety", "live_trading", fallback=True)
-if not config_obj.has_option("safety", "live_trading"):
+# Read from the REAL configfile.ini only (never the example defaults layer,
+# which would silently flip live installs to dry-run). Semantics:
+#   - configfile.ini missing entirely  → dry-run (fresh install, safe)
+#   - present but no [safety] key      → live (legacy installs, unchanged)
+#   - present with the key             → whatever it says
+_safety_parser = configparser.ConfigParser()
+_safety_parser.read(config_path)
+if not os.path.exists(config_path):
+    live_trading_enabled = False
+else:
+    live_trading_enabled = _safety_parser.getboolean("safety", "live_trading", fallback=True)
+if os.path.exists(config_path) and not _safety_parser.has_option("safety", "live_trading"):
     logging.info(
         "configfile.ini has no [safety] live_trading key — assuming live trading "
         "enabled (legacy behavior). Add '[safety]\\nlive_trading = true' to silence this."
