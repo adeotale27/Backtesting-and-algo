@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <title>Instrument Cache Manager</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f7f6; color: #333; }
+        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1, h2 { color: #2c3e50; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+        th { background: #f8f9fa; }
+        .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-weight: bold; }
+        .btn-danger { background: #e74c3c; }
+        .btn-primary { background: #3498db; }
+        .btn-success { background: #2ecc71; }
+        .status { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+        .status-ok { background: #d4edda; color: #155724; }
+        .status-warn { background: #fff3cd; color: #856404; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .stat-box { border: 1px solid #ddd; padding: 15px; border-radius: 6px; }
+        .stat-val { font-size: 24px; font-weight: bold; display: block; }
+        .status-pill { font-weight: bold; }
+        .status-success { color: #2ecc71; }
+        .status-failed { color: #e74c3c; }
+        .status-running { color: #f39c12; }
+    </style>
+</head>
+<body>
+{% include '_header_partial.html' %}
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>🛠 Instrument Cache Debugger</h1>
+        <a href="/wave-extractor" style="text-decoration: none; color: #3498db;">Back to Wave Extractor</a>
+    </div>
+
+    <div class="card">
+        <h2>System Status</h2>
+        {% if stats.exists %}
+            <div class="status status-ok">Database Online: Found <b>{{ stats.total_count }}</b> instruments.</div>
+            <p><b>Last Sync:</b> {{ stats.last_sync }}</p>
+            
+            <div class="stat-grid">
+                {% for seg, count in stats.segment_counts.items() %}
+                <div class="stat-box">
+                    <span class="stat-val">{{ count }}</span>
+                    <span>{{ seg }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="status status-warn">Database not found or is empty.</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Actions</h2>
+        <div style="display: flex; gap: 10px;">
+            <form action="{{ url_for('sync_instruments_route') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary">Start Zerodha Sync</button>
+            </form>
+
+            <form action="{{ url_for('admin_instruments_clear') }}" method="POST" onsubmit="return confirm('Wipe all cached instruments?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger">Wipe Database</button>
+            </form>
+        </div>
+        <p><small>* Use "Wipe Database" to test pure sync logic from scratch.</small></p>
+    </div>
+
+    <div class="card">
+        <h2>Sync History (Last 20)</h2>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Status</th>
+                        <th>Records</th>
+                        <th>Errors</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in stats.history %}
+                    <tr>
+                        <td>{{ run.id }}</td>
+                        <td>{{ run.start_time }}</td>
+                        <td>{{ run.end_time or 'Running...' }}</td>
+                        <td>
+                            <span class="status-pill {% if run.status == 'SUCCESS' %}status-success{% elif run.status == 'FAILED' %}status-failed{% else %}status-running{% endif %}">
+                                {{ run.status }}
+                            </span>
+                        </td>
+                        <td>{{ run.records_synced }}</td>
+                        <td style="color: #e74c3c; font-size: 12px;">{{ run.error_message or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not stats.history %}
+                    <tr><td colspan="6" style="text-align: center;">No history found.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Sample Data (First 50 records)</h2>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Token</th>
+                        <th>Symbol</th>
+                        <th>Name</th>
+                        <th>Expiry</th>
+                        <th>Strike</th>
+                        <th>Type</th>
+                        <th>Segment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in stats.sample %}
+                    <tr>
+                        <td>{{ row.instrument_token }}</td>
+                        <td>{{ row.tradingsymbol }}</td>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.expiry }}</td>
+                        <td>{{ row.strike }}</td>
+                        <td>{{ row.instrument_type }}</td>
+                        <td>{{ row.segment }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div style="text-align:center; padding: 1rem; margin-top: 2rem; border-top: 1px solid #30363d; font-size: 0.85rem;">
+        <a href="/copytrade/" style="color: #58a6ff; text-decoration: none;">📋 CopyTrade</a>
+    </div>
+    {% include '_notifications_partial.html' %}
+
+</body>
+</html>

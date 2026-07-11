@@ -1,0 +1,686 @@
+{% include "_csrf_shim.html" ignore missing %}
+<style>
+  #app-global-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    height: 45px;
+    background: #1a1f2e;
+    border-bottom: 1px solid #2d3748;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  #app-global-header .header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: #f6ad55;
+    font-weight: 600;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  #app-global-header .header-left i {
+    font-size: 16px;
+  }
+  #app-global-header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  #app-header-session-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #2d3748;
+    color: #a0aec0;
+    white-space: nowrap;
+  }
+  #app-header-session-badge.connected {
+    background: rgba(72,187,120,0.15);
+    color: #48bb78;
+    border: 1px solid rgba(72,187,120,0.3);
+  }
+  #app-header-session-badge.disconnected {
+    background: rgba(252,129,129,0.15);
+    color: #fc8181;
+    border: 1px solid rgba(252,129,129,0.3);
+  }
+  #app-header-connect-btn {
+    display: none;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, #ff6b35, #f7931e);
+    color: white;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #app-header-connect-btn:hover {
+    opacity: 0.85;
+  }
+  #app-header-bell-wrapper {
+    position: relative;
+    cursor: pointer;
+    color: #a0aec0;
+    font-size: 16px;
+    line-height: 1;
+  }
+  #app-header-bell-wrapper:hover {
+    color: #e2e8f0;
+  }
+  #app-header-notif-badge {
+    display: none;
+    position: absolute;
+    top: -6px;
+    right: -7px;
+    background: #fc8181;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    line-height: 16px;
+    text-align: center;
+    padding: 0 3px;
+  }
+  /* Notification dropdown panel */
+  #app-header-notif-panel {
+    display: none;
+    position: absolute;
+    top: 42px;
+    right: 0;
+    width: 320px;
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 2000;
+    overflow: hidden;
+  }
+  #app-header-notif-panel.open {
+    display: block;
+  }
+  #app-header-notif-panel .notif-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid #2d3748;
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  #app-header-notif-panel .notif-panel-close {
+    cursor: pointer;
+    color: #718096;
+    font-size: 15px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  #app-header-notif-panel .notif-panel-close:hover { color: #e2e8f0; }
+  #app-header-notif-panel .notif-list {
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  #app-header-notif-panel .notif-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid #232836;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  #app-header-notif-panel .notif-item:last-child { border-bottom: none; }
+  #app-header-notif-panel .notif-icon {
+    font-size: 14px;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  #app-header-notif-panel .notif-icon.error   { color: #fc8181; }
+  #app-header-notif-panel .notif-icon.warning { color: #f6ad55; }
+  #app-header-notif-panel .notif-icon.info    { color: #63b3ed; }
+  #app-header-notif-panel .notif-body { flex: 1; min-width: 0; }
+  #app-header-notif-panel .notif-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #app-header-notif-panel .notif-text {
+    font-size: 11px;
+    color: #718096;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #app-header-notif-panel .notif-time {
+    font-size: 10px;
+    color: #4a5568;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+  #app-header-notif-panel .notif-empty {
+    padding: 24px 14px;
+    text-align: center;
+    font-size: 12px;
+    color: #4a5568;
+  }
+  #app-header-notif-panel .notif-panel-footer {
+    padding: 8px 14px;
+    border-top: 1px solid #2d3748;
+  }
+  #app-header-notif-panel .notif-item-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 5px;
+  }
+  #app-header-notif-panel .notif-btn {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.12s;
+  }
+  #app-header-notif-panel .notif-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #app-header-notif-panel .notif-btn-complete {
+    background: rgba(72,187,120,0.12);
+    color: #48bb78;
+    border-color: rgba(72,187,120,0.3);
+  }
+  #app-header-notif-panel .notif-btn-complete:hover:not(:disabled) { background: rgba(72,187,120,0.22); }
+  #app-header-notif-panel .notif-btn-ignore {
+    background: rgba(113,128,150,0.12);
+    color: #718096;
+    border-color: rgba(113,128,150,0.3);
+  }
+  #app-header-notif-panel .notif-btn-ignore:hover:not(:disabled) { background: rgba(113,128,150,0.22); }
+  #app-header-notif-view-all {
+    font-size: 11px;
+    font-weight: 600;
+    color: #63b3ed;
+    text-decoration: none;
+    display: inline-block;
+  }
+  #app-header-notif-view-all:hover { color: #90cdf4; }
+
+  /* Actions dropdown */
+  #app-header-actions-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #f6ad55;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  #app-header-actions-btn:hover {
+    color: #fbd38d;
+    background: rgba(246, 173, 85, 0.12);
+  }
+  #app-header-actions-panel {
+    display: none;
+    position: absolute;
+    top: 32px;
+    right: 0;
+    width: 200px;
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 2000;
+    overflow: hidden;
+    padding: 6px 0;
+  }
+  #app-header-actions-panel.open {
+    display: block;
+  }
+  .actions-section-header {
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a5568;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 14px 4px;
+    pointer-events: none;
+    user-select: none;
+  }
+  .actions-divider {
+    height: 1px;
+    background: #2d3748;
+    margin: 4px 0;
+  }
+  .actions-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #cbd5e0;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .actions-item:hover {
+    background: #2d3748;
+    color: #e2e8f0;
+  }
+  .actions-item i {
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .actions-item.danger {
+    color: #fc8181;
+  }
+  .actions-item.danger:hover {
+    background: rgba(252,129,129,0.1);
+    color: #fc8181;
+  }
+
+  /* Modules dropdown */
+  #app-header-modules-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #63b3ed;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    gap: 6px;
+  }
+  #app-header-modules-btn:hover {
+    color: #90cdf4;
+    background: rgba(99, 179, 237, 0.12);
+  }
+  #app-header-modules-btn .module-label {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  #app-header-modules-panel {
+    display: none;
+    position: absolute;
+    top: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 220px;
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 2000;
+    overflow: hidden;
+    padding: 6px 0;
+  }
+  #app-header-modules-panel.open {
+    display: block;
+  }
+  .actions-item a {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+  }
+</style>
+
+<header id="app-global-header">
+  <a href="/home" class="header-left">
+    <i class="fas fa-home"></i>
+    Trading System
+  </a>
+  <div class="header-right">
+    <span id="app-header-mode-badge" style="display:none; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px; white-space:nowrap;"></span>
+    <span id="app-header-session-badge">⏳ Checking...</span>
+    
+    <div id="app-header-modules-btn" title="Switch Module" onclick="appHeaderToggleModulesPanel()">
+      <i class="fas fa-th"></i>
+      <span class="module-label">Modules</span>
+      <div id="app-header-modules-panel">
+        <div class="actions-section-header">Monitoring</div>
+        <a href="/positions" class="actions-item"><i class="fas fa-chart-line"></i> NIFTY Positions</a>
+        <a href="/sensex_positions" class="actions-item"><i class="fas fa-chart-bar"></i> SENSEX Positions</a>
+        <a href="/api-monitor" class="actions-item"><i class="fas fa-search"></i> API Monitor</a>
+        <a href="/duplicate-orders" class="actions-item"><i class="fas fa-exclamation-triangle"></i> Duplicate Orders</a>
+        <a href="/position-guard" class="actions-item"><i class="fas fa-shield-halved"></i> Position Guard</a>
+        <div class="actions-divider"></div>
+        <div class="actions-section-header">Strategies</div>
+        <a href="/wave-extractor" class="actions-item"><i class="fas fa-wave-square"></i> Wave Extractor</a>
+        <a href="/survivor" class="actions-item"><i class="fas fa-crosshairs"></i> Survivor</a>
+        <a href="/expiry_trade" class="actions-item"><i class="fas fa-calendar-check"></i> Expiry Trade</a>
+        <a href="/covered_calls/" class="actions-item"><i class="fas fa-umbrella"></i> Covered Calls</a>
+      </div>
+    </div>
+
+    <button id="app-header-connect-btn" onclick="appHeaderConnectKite()">Connect Kite</button>
+    <div id="app-header-actions-btn" title="Quick Actions" onclick="appHeaderToggleActionsPanel()">
+      <i id="app-header-actions-icon" class="fas fa-bolt"></i>
+      <div id="app-header-actions-panel">
+        <div class="actions-section-header">Instruments</div>
+        <div class="actions-item" onclick="appHeaderSyncInstruments(event)">
+          <i class="fas fa-sync-alt"></i> Sync Instruments
+        </div>
+        <div class="actions-item" onclick="appHeaderDebugInstruments(event)">
+          <i class="fas fa-tools"></i> Debug Instruments
+        </div>
+        <div class="actions-divider"></div>
+        <div class="actions-section-header">Accounts</div>
+        <div class="actions-item danger" onclick="appHeaderLogout(event)">
+          <i class="fas fa-sign-out-alt"></i> Logout
+        </div>
+      </div>
+    </div>
+    <div id="app-header-bell-wrapper" title="Notifications" onclick="appHeaderToggleNotifPanel()">
+      <i class="fas fa-bell"></i>
+      <span id="app-header-notif-badge"></span>
+      <!-- Notification dropdown panel -->
+      <div id="app-header-notif-panel">
+        <div class="notif-panel-header">
+          <span>Notifications</span>
+          <span class="notif-panel-close" onclick="appHeaderCloseNotifPanel(event)">✕</span>
+        </div>
+        <div class="notif-list" id="app-header-notif-list">
+          <div class="notif-empty">Loading...</div>
+        </div>
+        <div class="notif-panel-footer">
+          <a id="app-header-notif-view-all" href="/notifications/page" onclick="event.stopPropagation()">View all notifications →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<script>
+(function() {
+  var HEADER_ORDER_TYPES = new Set(['ORDER_EXECUTED', 'ORDER_CANCELLED']);
+
+  function updateAppHeaderSession() {
+    fetch('/api/session_status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var badge = document.getElementById('app-header-session-badge');
+        var btn = document.getElementById('app-header-connect-btn');
+        if (!badge) return;
+        if (data.authenticated) {
+          badge.textContent = '🟢 Connected';
+          badge.className = 'connected';
+          btn.style.display = 'none';
+        } else {
+          badge.textContent = '⚠ Disconnected';
+          badge.className = 'disconnected';
+          btn.style.display = 'inline-block';
+        }
+      })
+      .catch(function() {
+        var badge = document.getElementById('app-header-session-badge');
+        if (badge) { badge.textContent = '? Unknown'; badge.className = ''; }
+      });
+  }
+
+  function updateAppHeaderNotifs() {
+    fetch('/notifications/active')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var badge = document.getElementById('app-header-notif-badge');
+        if (!badge) return;
+        var count = (data.notifications || []).filter(function(n) { return !HEADER_ORDER_TYPES.has(n.type); }).length;
+        if (count > 0) {
+          badge.textContent = count > 99 ? '99+' : count;
+          badge.style.display = 'block';
+        } else {
+          badge.style.display = 'none';
+        }
+      })
+      .catch(function() {});
+  }
+
+  window.appHeaderConnectKite = function() {
+    fetch('/api/get_login_url')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.login_url) return;
+        var left = Math.round((screen.width - 520) / 2);
+        var top = Math.round((screen.height - 680) / 2);
+        window.open(
+          data.login_url,
+          'kite_login_popup',
+          'width=520,height=680,left=' + left + ',top=' + top
+        );
+        window.addEventListener('message', function handler(evt) {
+          if (evt.data && evt.data.type === 'ZERODHA_TOKEN' && evt.data.token) {
+            window.removeEventListener('message', handler);
+            fetch('/api/establish_session', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({request_token: evt.data.token})
+            }).then(function() {
+              updateAppHeaderSession();
+            }).catch(function() {
+              updateAppHeaderSession();
+            });
+          }
+        });
+      })
+      .catch(function() { alert('Could not get Kite login URL. Please try again.'); });
+  };
+
+  // --- Notification panel ---
+
+  function _severityIcon(severity) {
+    if (severity === 'error')   return '<span class="notif-icon error"><i class="fas fa-times-circle"></i></span>';
+    if (severity === 'warning') return '<span class="notif-icon warning"><i class="fas fa-exclamation-triangle"></i></span>';
+    return '<span class="notif-icon info"><i class="fas fa-info-circle"></i></span>';
+  }
+
+  function _relativeTime(isoStr) {
+    if (!isoStr) return '';
+    var diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (diff < 60)   return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  function _renderNotifList(notifications) {
+    var list = document.getElementById('app-header-notif-list');
+    if (!list) return;
+    if (!notifications || notifications.length === 0) {
+      list.innerHTML = '<div class="notif-empty">No active notifications</div>';
+      return;
+    }
+    list.innerHTML = notifications.map(function(n) {
+      return '<div class="notif-item" id="bell-notif-' + n.id + '">' +
+        _severityIcon(n.severity) +
+        '<div class="notif-body">' +
+          '<div class="notif-title">' + (n.title || '') + '</div>' +
+          '<div class="notif-text">' + (n.body || '') + '</div>' +
+          '<div class="notif-item-actions">' +
+            '<button class="notif-btn notif-btn-complete" onclick="appHeaderNotifAction(' + n.id + ',\'completed\',event)">Complete</button>' +
+            '<button class="notif-btn notif-btn-ignore"   onclick="appHeaderNotifAction(' + n.id + ',\'ignored\',event)">Ignore</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="notif-time">' + _relativeTime(n.created_at) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.appHeaderToggleNotifPanel = function() {
+    var panel = document.getElementById('app-header-notif-panel');
+    if (!panel) return;
+    var isOpen = panel.classList.contains('open');
+    if (isOpen) {
+      panel.classList.remove('open');
+    } else {
+      panel.classList.add('open');
+      fetch('/notifications/active')
+        .then(function(r) { return r.json(); })
+        .then(function(data) { _renderNotifList((data.notifications || []).filter(function(n) { return !HEADER_ORDER_TYPES.has(n.type); })); })
+        .catch(function() {
+          var list = document.getElementById('app-header-notif-list');
+          if (list) list.innerHTML = '<div class="notif-empty">Could not load notifications</div>';
+        });
+    }
+  };
+
+  window.appHeaderCloseNotifPanel = function(evt) {
+    evt.stopPropagation();
+    var panel = document.getElementById('app-header-notif-panel');
+    if (panel) panel.classList.remove('open');
+  };
+
+  window.appHeaderNotifAction = function(notifId, newStatus, evt) {
+    if (evt) evt.stopPropagation();
+    var item = document.getElementById('bell-notif-' + notifId);
+    var buttons = item ? item.querySelectorAll('.notif-btn') : [];
+    buttons.forEach(function(b) { b.disabled = true; });
+    fetch('/notifications/update-status', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: notifId, status: newStatus})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) { buttons.forEach(function(b) { b.disabled = false; }); return; }
+        if (item) { item.style.transition = 'opacity 0.25s'; item.style.opacity = '0'; }
+        setTimeout(function() {
+          if (item && item.parentNode) { item.parentNode.removeChild(item); }
+          var list = document.getElementById('app-header-notif-list');
+          var badge = document.getElementById('app-header-notif-badge');
+          if (list && !list.querySelector('.notif-item')) {
+            list.innerHTML = '<div class="notif-empty">No active notifications</div>';
+            if (badge) badge.style.display = 'none';
+          } else if (badge) {
+            var remaining = list ? list.querySelectorAll('.notif-item').length : 0;
+            if (remaining > 0) {
+              badge.textContent = remaining > 99 ? '99+' : remaining;
+            } else {
+              badge.style.display = 'none';
+            }
+          }
+        }, 260);
+      })
+      .catch(function() { buttons.forEach(function(b) { b.disabled = false; }); });
+  };
+
+  // Close panels when clicking outside
+  document.addEventListener('click', function(evt) {
+    var bell = document.getElementById('app-header-bell-wrapper');
+    var notifPanel = document.getElementById('app-header-notif-panel');
+    if (notifPanel && notifPanel.classList.contains('open') && bell && !bell.contains(evt.target)) {
+      notifPanel.classList.remove('open');
+    }
+    var actionsBtn = document.getElementById('app-header-actions-btn');
+    var actionsPanel = document.getElementById('app-header-actions-panel');
+    if (actionsPanel && actionsPanel.classList.contains('open') && actionsBtn && !actionsBtn.contains(evt.target)) {
+      actionsPanel.classList.remove('open');
+    }
+    var modulesBtn = document.getElementById('app-header-modules-btn');
+    var modulesPanel = document.getElementById('app-header-modules-panel');
+    if (modulesPanel && modulesPanel.classList.contains('open') && modulesBtn && !modulesBtn.contains(evt.target)) {
+      modulesPanel.classList.remove('open');
+    }
+  });
+
+  window.appHeaderToggleModulesPanel = function() {
+    var panel = document.getElementById('app-header-modules-panel');
+    if (!panel) return;
+    panel.classList.toggle('open');
+  };
+
+  window.appHeaderToggleActionsPanel = function() {
+    var panel = document.getElementById('app-header-actions-panel');
+    if (!panel) return;
+    panel.classList.toggle('open');
+  };
+
+  window.appHeaderSyncInstruments = function(evt) {
+    evt.stopPropagation();
+    var panel = document.getElementById('app-header-actions-panel');
+    if (panel) panel.classList.remove('open');
+    var icon = document.getElementById('app-header-actions-icon');
+    if (icon) { icon.className = 'fas fa-spinner fa-spin'; }
+    fetch('/api/sync_instruments', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (icon) { icon.className = 'fas fa-check'; }
+        setTimeout(function() {
+          if (icon) { icon.className = 'fas fa-bolt'; }
+        }, 3000);
+        if (!data.success) {
+          alert('Sync error: ' + (data.error || 'Unknown error'));
+        }
+      })
+      .catch(function(err) {
+        if (icon) { icon.className = 'fas fa-bolt'; }
+        alert('Connection error during sync.');
+      });
+  };
+
+  window.appHeaderDebugInstruments = function(evt) {
+    evt.stopPropagation();
+    var panel = document.getElementById('app-header-actions-panel');
+    if (panel) panel.classList.remove('open');
+    window.open('/admin/instruments', '_blank');
+  };
+
+  window.appHeaderLogout = function(evt) {
+    evt.stopPropagation();
+    window.location.href = '/app_logout';
+  };
+
+  function updateAppHeaderTradingMode() {
+    fetch('/api/trading_mode')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        var badge = document.getElementById('app-header-mode-badge');
+        if (!badge || !data) return;
+        if (data.live_trading) {
+          badge.textContent = '🔴 LIVE';
+          badge.style.background = 'rgba(252,129,129,0.15)';
+          badge.style.color = '#fc8181';
+          badge.style.border = '1px solid rgba(252,129,129,0.4)';
+          badge.title = 'Live trading is ENABLED — orders are sent to Zerodha with real money.';
+        } else {
+          badge.textContent = '🟡 DRY-RUN';
+          badge.style.background = 'rgba(246,173,85,0.15)';
+          badge.style.color = '#f6ad55';
+          badge.style.border = '1px solid rgba(246,173,85,0.4)';
+          badge.title = 'Dry-run mode — order placement is simulated. Set [safety] live_trading = true in configfile.ini to trade for real.';
+        }
+        badge.style.display = 'inline-block';
+      })
+      .catch(function() {});
+  }
+
+  updateAppHeaderSession();
+  updateAppHeaderNotifs();
+  updateAppHeaderTradingMode();
+  setInterval(updateAppHeaderSession, 60000);
+  setInterval(updateAppHeaderNotifs, 30000);
+})();
+</script>

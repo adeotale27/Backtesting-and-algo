@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading System — Home</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    .home-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+    .home-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: #f6ad55;
+      margin-bottom: 4px;
+    }
+    .home-subtitle {
+      font-size: 13px;
+      color: #718096;
+      margin-bottom: 32px;
+    }
+    .category-section {
+      margin-bottom: 36px;
+    }
+    .category-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #718096;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #2d3748;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .module-card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 18px 16px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.15s, background 0.15s, transform 0.1s;
+      cursor: pointer;
+    }
+    .module-card:hover {
+      border-color: #f6ad55;
+      background: #1e2535;
+      transform: translateY(-2px);
+    }
+    .module-card .card-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+    .module-card .card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .module-card .card-desc {
+      font-size: 11px;
+      color: #718096;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+{% include '_header_partial.html' %}
+
+<div class="home-container">
+  <div class="home-title">Trading System</div>
+  <div class="home-subtitle">Select a module to get started</div>
+
+  <!-- Positions & Monitoring -->
+  <div class="category-section">
+    <div class="category-label">Positions &amp; Monitoring</div>
+    <div class="card-grid">
+      <a href="/positions" class="module-card">
+        <div class="card-icon">📊</div>
+        <div class="card-name">NIFTY Positions</div>
+        <div class="card-desc">Live NIFTY options positions with greeks and IV</div>
+      </a>
+      <a href="/sensex_positions" class="module-card">
+        <div class="card-icon">📈</div>
+        <div class="card-name">SENSEX Positions</div>
+        <div class="card-desc">Live SENSEX options positions with greeks and IV</div>
+      </a>
+      <a href="/api-monitor" class="module-card">
+        <div class="card-icon">🔍</div>
+        <div class="card-name">API Monitor</div>
+        <div class="card-desc">Zerodha API call metrics and rate limit tracking</div>
+      </a>
+      <a href="/duplicate-orders" class="module-card">
+        <div class="card-icon">⚠️</div>
+        <div class="card-name">Duplicate Orders</div>
+        <div class="card-desc">Detect and cancel duplicate algo orders within 2% price</div>
+      </a>
+      <a href="/position-guard" class="module-card">
+        <div class="card-icon">🛡️</div>
+        <div class="card-name">Position Guard</div>
+        <div class="card-desc">Symbols with unreviewed long exposure across position, orders &amp; GTTs</div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Trading Strategies -->
+  <div class="category-section">
+    <div class="category-label">Trading Strategies</div>
+    <div class="card-grid">
+      <a href="/wave-extractor" class="module-card">
+        <div class="card-icon">🌊</div>
+        <div class="card-name">Wave Extractor</div>
+        <div class="card-desc">Gap trading automation and order management</div>
+      </a>
+      <a href="/survivor" class="module-card">
+        <div class="card-icon">🎯</div>
+        <div class="card-name">Survivor</div>
+        <div class="card-desc">Stock single-leg strategy for BANKNIFTY</div>
+      </a>
+      <a href="/expiry_trade" class="module-card">
+        <div class="card-icon">📅</div>
+        <div class="card-name">Expiry Trade</div>
+        <div class="card-desc">Expiry day strategy with Stoch RSI signals</div>
+      </a>
+      <a href="/covered_calls/" class="module-card">
+        <div class="card-icon">☂️</div>
+        <div class="card-name">Covered Calls</div>
+        <div class="card-desc">Sell OTM CE options against held equity to earn premium</div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Exit Management -->
+  <div class="category-section">
+    <div class="category-label">Exit Management</div>
+    <div class="card-grid">
+      <a href="/early-exit" class="module-card">
+        <div class="card-icon">🚪</div>
+        <div class="card-name">Early Exit — NIFTY</div>
+        <div class="card-desc">Set up GTT exit orders for NIFTY options</div>
+      </a>
+      <a href="/early-exit-sensex" class="module-card">
+        <div class="card-icon">🚪</div>
+        <div class="card-name">Early Exit — SENSEX</div>
+        <div class="card-desc">Set up GTT exit orders for SENSEX options</div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Analysis & Research -->
+  <div class="category-section">
+    <div class="category-label">Analysis &amp; Research</div>
+    <div class="card-grid">
+      <a href="/trade-journal" class="module-card">
+        <div class="card-icon">📋</div>
+        <div class="card-name">Trade Journal</div>
+        <div class="card-desc">Daily P&amp;L, market conditions and trade notes</div>
+      </a>
+      <a href="/tradebook-analysis" class="module-card">
+        <div class="card-icon">📊</div>
+        <div class="card-name">Tradebook Analysis</div>
+        <div class="card-desc">Analyze weekly/monthly expiries and margin from CSV</div>
+      </a>
+    </div>
+  </div>
+
+
+</div>
+</body>
+</html>

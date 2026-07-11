@@ -1,0 +1,26 @@
+# Pinned dependency set for the UI Trading System.
+# Versions match the maintainer's tested environment; loosen at your own risk.
+
+flask==3.1.2
+flask-wtf==1.3.0
+flask-limiter==4.1.1
+werkzeug==3.1.3
+waitress==3.0.2
+
+numpy==2.2.6
+pandas==2.3.3
+pandas_ta==0.4.71b0          # expiry-trade Stochastic RSI (needs Python >= 3.12; optional otherwise)
+scipy==1.16.3
+
+requests==2.32.5
+python-dateutil==2.9.0.post0
+
+# notifications (Telegram + browser Web Push)
+apscheduler==3.11.2
+pywebpush==2.3.0
+py-vapid==1.9.4
+holidays==0.96
+
+# Vendored Kite Connect SDK (includes local modifications, e.g. market
+# protection support). Installed from this repo, not PyPI.
+./vendor/pykiteconnect

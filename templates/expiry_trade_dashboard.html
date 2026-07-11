@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expiry Trade Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #fff;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 1.8em;
+            font-weight: 700;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #64b5f6;
+            text-decoration: none;
+            margin-bottom: 20px;
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: #90caf9;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(20px);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            margin-bottom: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #fff;
+            font-size: 1.2em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* ---- Auth Section ---- */
+        .auth-section {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .auth-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.07);
+            color: #fff;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            transition: all 0.25s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-key {
+            padding: 12px 16px;
+            font-size: 18px;
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.35);
+            color: #ffc107;
+            border-radius: 10px;
+        }
+
+        .btn-key:hover {
+            background: rgba(255, 193, 7, 0.25);
+            transform: translateY(-1px);
+        }
+
+        /* ---- Status Bar ---- */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 18px 24px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            flex-wrap: wrap;
+        }
+
+        .status-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .status-indicator.active {
+            background: #4caf50;
+            box-shadow: 0 0 12px rgba(76, 175, 80, 0.6);
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-indicator.stuck {
+            background: #f44336;
+            box-shadow: 0 0 12px rgba(244, 67, 54, 0.6);
+            animation: pulse-red 1s infinite;
+        }
+
+        .status-indicator.inactive {
+            background: #555;
+        }
+
+        @keyframes pulse-green {
+
+            0%,
+            100% {
+                box-shadow: 0 0 6px rgba(76, 175, 80, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 18px rgba(76, 175, 80, 0.8);
+            }
+        }
+
+        @keyframes pulse-red {
+
+            0%,
+            100% {
+                box-shadow: 0 0 6px rgba(244, 67, 54, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 18px rgba(244, 67, 54, 0.8);
+            }
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .status-text strong {
+            color: #fff;
+        }
+
+        .expiry-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+
+        .tick-time {
+            margin-left: auto;
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* ---- Charts ---- */
+        .chart-container {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #131722;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .chart-title {
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        /* ---- Messages ---- */
+        .status-message {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .status-success {
+            background: rgba(76, 175, 80, 0.15);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            color: #81c784;
+        }
+
+        .status-error {
+            background: rgba(244, 67, 54, 0.15);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            color: #ff8a80;
+        }
+
+        .status-warning {
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #ffd54f;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+
+        .loading i {
+            font-size: 28px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ---- Legend ---- */
+        .chart-legend {
+            display: flex;
+            gap: 20px;
+            padding: 10px 16px;
+            font-size: 12px;
+            color: #888;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-color {
+            width: 14px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        /* ---- S/R table ---- */
+        .sr-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        .sr-table th,
+        .sr-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 13px;
+        }
+
+        .sr-table th {
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 11px;
+        }
+
+        .sr-support {
+            color: #26a69a;
+        }
+
+        .sr-resistance {
+            color: #ef5350;
+        }
+
+        /* Footer Navigation */
+
+    </style>
+</head>
+
+<body>
+{% include '_header_partial.html' %}
+    <div class="container">
+        <a href="/wave-extractor" class="back-link">
+            <i class="fas fa-arrow-left"></i> Back to Trading Bot Dashboard
+        </a>
+
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h1 style="margin: 0;">
+                <span>📈</span> Expiry Trade Dashboard
+            </h1>
+
+        </div>
+
+        <!-- Control Panel -->
+        <div class="card">
+            <h2><i class="fas fa-cogs"></i> Control Panel</h2>
+            <div class="auth-section">
+                <button class="btn btn-primary" onclick="startSystem()">
+                    <i class="fas fa-play"></i> Start System
+                </button>
+            </div>
+            <div id="authStatus"></div>
+        </div>
+
+        <!-- System Status Bar -->
+        <div class="card">
+            <div class="status-bar">
+                <span class="status-indicator inactive" id="statusIndicator"></span>
+                <span class="status-text" id="statusText">System not started</span>
+                <span class="expiry-badge" id="expiryBadge" style="display:none;">--</span>
+                <span class="tick-time" id="tickTime"></span>
+            </div>
+        </div>
+
+        <!-- 3-Min Candlestick Chart with S/R -->
+        <div class="card">
+            <h2><i class="fas fa-chart-bar"></i> 3-Minute Candle Chart</h2>
+            <div class="chart-container">
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <span class="legend-color" style="background:#26a69a"></span>
+                        Support
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background:#ef5350"></span>
+                        Resistance
+                    </div>
+                </div>
+                <div id="candleChart" style="height: 450px;"></div>
+            </div>
+        </div>
+
+        <!-- Stochastic RSI Chart -->
+        <div class="card">
+            <h2><i class="fas fa-wave-square"></i> Stochastic RSI
+                <span style="font-size:12px; color:#666; font-weight:400; margin-left:8px;">
+                    K:3, D:3, RSI:14, Stoch:14
+                </span>
+            </h2>
+            <div class="chart-container">
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <span class="legend-color" style="background:#2196f3"></span>
+                        %K
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background:#ff9800"></span>
+                        %D
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background:rgba(255,255,255,0.1)"></span>
+                        20 / 80 levels
+                    </div>
+                </div>
+                <div id="stochChart" style="height: 300px;"></div>
+            </div>
+        </div>
+
+        <!-- S/R Table -->
+        <div class="card">
+            <h2><i class="fas fa-layer-group"></i> 1-Hour Support & Resistance Levels</h2>
+            <table class="sr-table" id="srTable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Support (Low)</th>
+                        <th>Resistance (High)</th>
+                    </tr>
+                </thead>
+                <tbody id="srTableBody">
+                    <tr>
+                        <td colspan="3" style="text-align:center;color:#555;">No data yet</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // ---- State ----
+        // ---- Auth ----
+
+
+        let candleChart = null;
+        let candleSeries = null;
+        let stochChart = null;
+        let kSeries = null;
+        let dSeries = null;
+        let srLines = [];
+        let statusInterval = null;
+        let dataInterval = null;
+
+        // ---- Start System ----
+        async function startSystem() {
+            showMessage('authStatus', '<i class="fas fa-spinner fa-spin"></i> Starting system...', 'warning');
+
+            try {
+                const res = await fetch('/api/expiry_trade/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    showMessage('authStatus', data.message, 'success');
+                    startPolling();
+                } else {
+                    showMessage('authStatus', data.message || 'Failed to start', 'error');
+                }
+            } catch (err) {
+                showMessage('authStatus', 'Error: ' + err.message, 'error');
+            }
+        }
+
+        // ---- Polling ----
+        function startPolling() {
+            // Poll status every 3 seconds
+            if (statusInterval) clearInterval(statusInterval);
+            statusInterval = setInterval(pollStatus, 3000);
+            pollStatus();
+
+            // Poll data every 10 seconds
+            if (dataInterval) clearInterval(dataInterval);
+            dataInterval = setInterval(pollData, 10000);
+            pollData();
+        }
+
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/expiry_trade/status');
+                const data = await res.json();
+                updateStatusUI(data);
+            } catch (e) { /* silent */ }
+        }
+
+        async function pollData() {
+            try {
+                const [candleRes, stochRes, srRes] = await Promise.all([
+                    fetch('/api/expiry_trade/candles'),
+                    fetch('/api/expiry_trade/stoch_rsi'),
+                    fetch('/api/expiry_trade/support_resistance')
+                ]);
+
+                const candleData = await candleRes.json();
+                const stochData = await stochRes.json();
+                const srData = await srRes.json();
+
+                updateCandleChart(candleData.candles || [], srData.support_resistance || []);
+                updateStochChart(stochData.stoch_rsi || []);
+                updateSRTable(srData.support_resistance || []);
+            } catch (e) { /* silent */ }
+        }
+
+        // ---- UI Updates ----
+        function updateStatusUI(data) {
+            const indicator = document.getElementById('statusIndicator');
+            const text = document.getElementById('statusText');
+            const badge = document.getElementById('expiryBadge');
+            const tickEl = document.getElementById('tickTime');
+
+            indicator.className = 'status-indicator';
+
+            if (!data.is_active) {
+                indicator.classList.add('inactive');
+                if (data.active_index === null && data.expiry_substring === null) {
+                    text.innerHTML = 'No expiry today for NIFTY or SENSEX';
+                } else {
+                    text.innerHTML = 'System not started';
+                }
+                badge.style.display = 'none';
+            } else if (data.is_stuck) {
+                indicator.classList.add('stuck');
+                text.innerHTML = '<strong style="color:#ff8a80">⚠ System Stuck</strong> — No ticks for >10s';
+                badge.style.display = 'inline-block';
+                badge.textContent = data.expiry_substring || '--';
+            } else {
+                indicator.classList.add('active');
+                text.innerHTML = `Running on <strong>${data.active_index}</strong>`;
+                badge.style.display = 'inline-block';
+                badge.textContent = data.expiry_substring || '--';
+            }
+
+            tickEl.textContent = data.last_tick_time
+                ? `Last tick: ${data.last_tick_time}`
+                : '';
+        }
+
+        // ---- Candle Chart ----
+        function initCandleChart() {
+            const container = document.getElementById('candleChart');
+            candleChart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 450,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#9B9DA0',
+                    fontFamily: 'Inter, sans-serif',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255,255,255,0.04)' },
+                    horzLines: { color: 'rgba(255,255,255,0.04)' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: false,
+                    borderColor: 'rgba(255,255,255,0.08)',
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255,255,255,0.08)',
+                },
+            });
+
+            candleSeries = candleChart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderDownColor: '#ef5350',
+                borderUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+                wickUpColor: '#26a69a',
+            });
+
+            // Responsive resize
+            new ResizeObserver(entries => {
+                const { width } = entries[0].contentRect;
+                candleChart.applyOptions({ width });
+            }).observe(container);
+        }
+
+        function updateCandleChart(candles, sr) {
+            if (!candleChart) initCandleChart();
+            if (!candles.length) return;
+
+            const chartData = candles.map(c => ({
+                time: toTimestamp(c.time),
+                open: c.open,
+                high: c.high,
+                low: c.low,
+                close: c.close
+            }));
+
+            candleSeries.setData(chartData);
+
+            // Remove old S/R lines
+            srLines.forEach(line => {
+                try { candleSeries.removePriceLine(line); } catch (e) { }
+            });
+            srLines = [];
+
+            // Add S/R horizontal lines
+            sr.forEach(level => {
+                const supportLine = candleSeries.createPriceLine({
+                    price: level.support,
+                    color: 'rgba(38, 166, 154, 0.5)',
+                    lineWidth: 1,
+                    lineStyle: 2, // Dashed
+                    axisLabelVisible: true,
+                    title: 'S ' + level.time,
+                });
+                const resistanceLine = candleSeries.createPriceLine({
+                    price: level.resistance,
+                    color: 'rgba(239, 83, 80, 0.5)',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                    axisLabelVisible: true,
+                    title: 'R ' + level.time,
+                });
+                srLines.push(supportLine, resistanceLine);
+            });
+        }
+
+        // ---- Stochastic RSI Chart ----
+        function initStochChart() {
+            const container = document.getElementById('stochChart');
+            stochChart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 300,
+                layout: {
+                    background: { type: 'solid', color: '#131722' },
+                    textColor: '#9B9DA0',
+                    fontFamily: 'Inter, sans-serif',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255,255,255,0.04)' },
+                    horzLines: { color: 'rgba(255,255,255,0.04)' },
+                },
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: false,
+                    borderColor: 'rgba(255,255,255,0.08)',
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255,255,255,0.08)',
+                    scaleMargins: { top: 0.05, bottom: 0.05 }
+                }
+            });
+
+            kSeries = stochChart.addLineSeries({
+                color: '#2196f3',
+                lineWidth: 2,
+                title: '%K',
+            });
+
+            dSeries = stochChart.addLineSeries({
+                color: '#ff9800',
+                lineWidth: 2,
+                title: '%D',
+            });
+
+            // Overbought/oversold levels (80/20)
+            // We'll add as horizontal lines via price lines on kSeries
+            kSeries.createPriceLine({
+                price: 80,
+                color: 'rgba(255,255,255,0.15)',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: '',
+            });
+            kSeries.createPriceLine({
+                price: 20,
+                color: 'rgba(255,255,255,0.15)',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: '',
+            });
+
+            new ResizeObserver(entries => {
+                const { width } = entries[0].contentRect;
+                stochChart.applyOptions({ width });
+            }).observe(container);
+        }
+
+        function updateStochChart(data) {
+            if (!stochChart) initStochChart();
+            if (!data.length) return;
+
+            // We need timestamps — use today's date + time
+            const today = new Date().toISOString().split('T')[0];
+            const kData = data.map(d => ({
+                time: toTimestamp(today + ' ' + d.time + ':00'),
+                value: d.k
+            }));
+            const dData = data.map(d => ({
+                time: toTimestamp(today + ' ' + d.time + ':00'),
+                value: d.d
+            }));
+
+            kSeries.setData(kData);
+            dSeries.setData(dData);
+        }
+
+        // ---- S/R Table ----
+        function updateSRTable(data) {
+            const tbody = document.getElementById('srTableBody');
+            if (!data.length) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#555;">No data yet</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.map(row => `
+                <tr>
+                    <td>${row.time}</td>
+                    <td class="sr-support">${row.support.toFixed(2)}</td>
+                    <td class="sr-resistance">${row.resistance.toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ---- Helpers ----
+        function toTimestamp(dateStr) {
+            // Convert "YYYY-MM-DD HH:MM:SS" to Unix timestamp for
+            // LightweightCharts. The chart displays timestamps as UTC,
+            // but our data is in IST. We undo the browser's timezone
+            // conversion so local IST times display correctly.
+            const d = new Date(dateStr);
+            // getTimezoneOffset() returns UTC-local in minutes
+            // For IST (UTC+5:30) it returns -330
+            const offsetMs = d.getTimezoneOffset() * 60 * 1000;
+            return Math.floor((d.getTime() - offsetMs) / 1000);
+        }
+
+        function showMessage(id, msg, type) {
+            const el = document.getElementById(id);
+            el.innerHTML = `
+                <div class="status-message status-${type}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                    ${msg}
+                </div>
+            `;
+        }
+
+        // ============ Kite Session Management ============
+
+        let pendingSessionConnect = false;
+
+        async function checkKiteSession() {
+            const badge = document.getElementById('sessionBadge');
+            const btn = document.getElementById('connectKiteBtn');
+            try {
+                const res = await fetch('/api/session_status');
+                const data = await res.json();
+                if (data.authenticated) {
+                    badge.textContent = '🟢 Kite Connected';
+                    badge.style.background = '#e8f5e9';
+                    badge.style.color = '#2e7d32';
+                    btn.style.display = 'none';
+                } else {
+                    badge.textContent = '🔴 Not Connected';
+                    badge.style.background = '#fce4ec';
+                    badge.style.color = '#c62828';
+                    btn.style.display = 'inline-block';
+                }
+            } catch (e) {
+                badge.textContent = '⚠️ Error';
+                badge.style.background = '#fff3e0';
+                badge.style.color = '#e65100';
+                btn.style.display = 'inline-block';
+            }
+        }
+
+        async function connectKiteSession() {
+            try {
+                const res = await fetch('/api/get_login_url');
+                const data = await res.json();
+                if (data.login_url) {
+                    pendingSessionConnect = true;
+                    const badge = document.getElementById('sessionBadge');
+                    badge.textContent = '🔄 Logging in...';
+                    badge.style.background = '#e3f2fd';
+                    badge.style.color = '#1565c0';
+                    window.open(data.login_url, 'zerodha_login', 'width=450,height=600');
+                } else {
+                    alert('Could not get login URL');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Error fetching login URL');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', checkKiteSession);
+    </script>
+
+    <!-- Footer Navigation -->
+{% include '_notifications_partial.html' %}
+
+</body>
+
+</html>

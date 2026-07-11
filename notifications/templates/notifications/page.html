@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notifications — Trading System</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    .page-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+    .page-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .page-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #f6ad55;
+    }
+    .page-subtitle {
+      font-size: 12px;
+      color: #4a5568;
+    }
+
+    /* Section */
+    .section {
+      margin-bottom: 36px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #718096;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #2d3748;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-count {
+      background: #2d3748;
+      color: #a0aec0;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 10px;
+      letter-spacing: 0;
+    }
+    .section-count.active-count {
+      background: rgba(246,173,85,0.15);
+      color: #f6ad55;
+    }
+
+    /* Tabs */
+    .tab-bar {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 14px;
+      border-bottom: 1px solid #2d3748;
+    }
+    .tab-btn {
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: none;
+      border: none;
+      color: #718096;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .tab-btn.active { color: #f6ad55; border-bottom-color: #f6ad55; }
+    .tab-btn:hover:not(.active) { color: #a0aec0; }
+    .tab-badge {
+      background: #2d3748;
+      color: #a0aec0;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 8px;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .tab-badge.has-items {
+      background: rgba(246,173,85,0.15);
+      color: #f6ad55;
+    }
+    .tab-ignore-btn {
+      margin-left: auto;
+      padding: 3px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid rgba(113,128,150,0.3);
+      background: rgba(113,128,150,0.12);
+      color: #718096;
+      white-space: nowrap;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .tab-ignore-btn:hover:not(:disabled) { background: rgba(113,128,150,0.22); }
+    .tab-ignore-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Notification card */
+    .notif-card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      transition: border-color 0.15s;
+    }
+    .notif-card:hover {
+      border-color: #4a5568;
+    }
+    .notif-card.fading-out {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    /* Severity icon */
+    .sev-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .sev-icon.error   { background: rgba(252,129,129,0.15); color: #fc8181; }
+    .sev-icon.warning { background: rgba(246,173,85,0.15);  color: #f6ad55; }
+    .sev-icon.info    { background: rgba(99,179,237,0.15);  color: #63b3ed; }
+
+    /* Card body */
+    .card-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: 3px;
+    }
+    .card-text {
+      font-size: 12px;
+      color: #a0aec0;
+      line-height: 1.5;
+      margin-bottom: 6px;
+    }
+    .card-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      color: #4a5568;
+    }
+    .card-type-badge {
+      background: #2d3748;
+      color: #718096;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* Status badge (completed / ignored) */
+    .status-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .status-badge.completed {
+      background: rgba(72,187,120,0.15);
+      color: #48bb78;
+      border: 1px solid rgba(72,187,120,0.25);
+    }
+    .status-badge.ignored {
+      background: rgba(113,128,150,0.15);
+      color: #718096;
+      border: 1px solid rgba(113,128,150,0.25);
+    }
+
+    /* Order meta pills */
+    .order-meta-pills {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin-top: 5px;
+    }
+    .pill {
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .pill-side.buy  { background: rgba(72,187,120,0.15); color: #48bb78; }
+    .pill-side.sell { background: rgba(252,129,129,0.15); color: #fc8181; }
+    .pill-qty, .pill-price { background: #2d3748; color: #a0aec0; }
+
+    /* P&L summary card body */
+    .pnl-summary { font-size: 12px; margin-bottom: 6px; }
+    .pnl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .pnl-row strong { font-size: 14px; font-weight: 700; }
+    .pnl-sub {
+      display: flex;
+      justify-content: space-between;
+      padding-left: 10px;
+      color: #718096;
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+    .pnl-orders-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid #2d3748;
+      color: #718096;
+      font-size: 11px;
+    }
+
+    /* Action buttons */
+    .card-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+      align-items: flex-start;
+      margin-top: 2px;
+    }
+    .btn-action {
+      padding: 4px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn-action:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-complete {
+      background: rgba(72,187,120,0.12);
+      color: #48bb78;
+      border-color: rgba(72,187,120,0.3);
+    }
+    .btn-complete:hover:not(:disabled) {
+      background: rgba(72,187,120,0.22);
+    }
+    .btn-ignore {
+      background: rgba(113,128,150,0.12);
+      color: #718096;
+      border-color: rgba(113,128,150,0.3);
+    }
+    .btn-ignore:hover:not(:disabled) {
+      background: rgba(113,128,150,0.22);
+    }
+    .btn-delete {
+      background: rgba(252,129,129,0.08);
+      color: #fc8181;
+      border-color: rgba(252,129,129,0.25);
+      padding: 4px 8px;
+    }
+    .btn-delete:hover:not(:disabled) {
+      background: rgba(252,129,129,0.18);
+    }
+    .btn-link {
+      background: rgba(99,179,237,0.12);
+      color: #63b3ed;
+      border-color: rgba(99,179,237,0.25);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-link:hover {
+      background: rgba(99,179,237,0.22);
+    }
+    .delete-all-btn {
+      margin-left: auto;
+      padding: 2px 10px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid rgba(252,129,129,0.25);
+      background: rgba(252,129,129,0.08);
+      color: #fc8181;
+      white-space: nowrap;
+      transition: opacity 0.15s, background 0.15s;
+      letter-spacing: 0;
+    }
+    .delete-all-btn:hover:not(:disabled) { background: rgba(252,129,129,0.18); }
+    .delete-all-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 32px 0;
+      color: #4a5568;
+      font-size: 13px;
+    }
+    .empty-state i {
+      font-size: 28px;
+      margin-bottom: 10px;
+      display: block;
+      color: #2d3748;
+    }
+
+    /* Loading */
+    .loading-state {
+      text-align: center;
+      padding: 32px 0;
+      color: #4a5568;
+      font-size: 13px;
+    }
+    .loading-state i {
+      font-size: 20px;
+      margin-bottom: 8px;
+      display: block;
+      color: #2d3748;
+    }
+  </style>
+</head>
+<body>
+
+{% include '_header_partial.html' %}
+{% include '_notifications_partial.html' %}
+
+<div class="page-container">
+  <div class="page-header">
+    <div class="page-title"><i class="fas fa-bell" style="font-size:16px;margin-right:8px;"></i>Notifications</div>
+    <div class="page-subtitle">Sorted by time of trigger — latest first</div>
+  </div>
+
+  <!-- Active Section -->
+  <div class="section">
+    <div class="section-label">
+      Active
+      <span class="section-count active-count" id="active-count-badge">0</span>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-btn-important" onclick="switchTab('important')">
+        Important <span class="tab-badge" id="tab-badge-important">0</span>
+      </button>
+      <button class="tab-btn" id="tab-btn-orders" onclick="switchTab('orders')">
+        Orders <span class="tab-badge" id="tab-badge-orders">0</span>
+      </button>
+      <button class="tab-btn" id="tab-btn-others" onclick="switchTab('others')">
+        Others <span class="tab-badge" id="tab-badge-others">0</span>
+      </button>
+      <button class="tab-ignore-btn" id="ignore-tab-btn" onclick="ignoreCurrentTab()">Ignore Tab</button>
+    </div>
+
+    <div id="active-section">
+      <div class="loading-state"><i class="fas fa-spinner fa-spin"></i>Loading...</div>
+    </div>
+  </div>
+
+  <!-- Completed / Ignored Section -->
+  <div class="section">
+    <div class="section-label">
+      Completed / Ignored
+      <span class="section-count" id="inactive-count-badge">0</span>
+      <button class="delete-all-btn" id="delete-all-inactive-btn" onclick="deleteAllInactive()">Delete All</button>
+    </div>
+    <div id="inactive-section">
+      <div class="loading-state"><i class="fas fa-spinner fa-spin"></i>Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var _activeNotifs = [];
+  var _inactiveNotifs = [];
+  var _activeTab = 'important';
+
+  var TAB_TYPES = {
+    important: ['KITE_LOGIN_CHECK', 'EARLY_EXIT_REQUIRED', 'DAILY_PNL_SUMMARY', 'COPY_ACCOUNT_ERROR', 'NIFTY_MARGIN_ALERT', 'NIFTY_DELTA_ALERT', 'NIFTY_ITM_LOSS_ALERT', 'GTT_POSITION_EXCESS', 'GTT_ORPHANED', 'DUPLICATE_ORDER_ALERT', 'COPY_MARGIN_LOW'],
+    orders:    ['ORDER_EXECUTED', 'ORDER_CANCELLED', 'COPY_ORDER_TRIGGERED'],
+  };
+
+  function _getTab(notifType) {
+    if (TAB_TYPES.important.indexOf(notifType) !== -1) return 'important';
+    if (TAB_TYPES.orders.indexOf(notifType) !== -1) return 'orders';
+    return 'others';
+  }
+
+  function _relativeTime(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    var hours = d.getHours();
+    var mins = d.getMinutes().toString().padStart(2, '0');
+    var ampm = hours >= 12 ? 'PM' : 'AM';
+    var h12 = hours % 12 || 12;
+    var timeStr = h12 + ':' + mins + ampm;
+
+    if (diff < 60)    return diff + 's ago';
+    if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago at ' + timeStr;
+    return Math.floor(diff / 86400) + 'd ago at ' + timeStr;
+  }
+
+  function _sevIconHtml(severity) {
+    var icon = 'fa-info-circle';
+    if (severity === 'error')   icon = 'fa-times-circle';
+    if (severity === 'warning') icon = 'fa-exclamation-triangle';
+    return '<div class="sev-icon ' + severity + '"><i class="fas ' + icon + '"></i></div>';
+  }
+
+  // Build order metadata pills for ORDER_EXECUTED / ORDER_CANCELLED cards
+  function _orderPillsHtml(n) {
+    var m = n.metadata || {};
+    if (!m.symbol && !m.transaction_type) return '';
+    var side = (m.transaction_type || '').toUpperCase();
+    var sideClass = side === 'BUY' ? 'buy' : 'sell';
+    var html = '<div class="order-meta-pills">';
+    if (side) html += '<span class="pill pill-side ' + sideClass + '">' + side + '</span>';
+    if (m.quantity) html += '<span class="pill pill-qty">' + _esc(String(m.quantity)) + ' lots</span>';
+    if (m.price) html += '<span class="pill pill-price">@ &#8377;' + _esc(String(m.price)) + '</span>';
+    html += '</div>';
+    return html;
+  }
+
+  // Render structured card body for NIFTY_DELTA_ALERT notifications
+  function _deltaAlertCardBody(n) {
+    var m = n.metadata || {};
+    function _fmtRs(val) {
+      if (val === undefined || val === null) return '—';
+      return '&#8377;' + Number(val).toLocaleString('en-IN', {maximumFractionDigits: 0});
+    }
+    var dayLabel   = m.days_to_expiry === 0 ? 'Expiry Day' : 'D-' + m.days_to_expiry;
+    var deltaAbs   = Math.abs(m.delta || 0);
+    var deltaColor = deltaAbs > (m.threshold || 0) ? '#fc8181' : '#68d391';
+    var html = '<div class="pnl-summary">';
+    html += '<div class="pnl-row"><span>' + dayLabel + ' Delta</span>' +
+      '<strong style="color:' + deltaColor + '">' +
+      (m.delta !== undefined ? Number(m.delta).toFixed(1) : '—') + '</strong></div>';
+    html += '<div class="pnl-sub"><span>Threshold (±)</span>' +
+      '<span>' + (m.threshold !== undefined ? m.threshold : '—') + '</span></div>';
+    html += '<div class="pnl-sub"><span>Expiry</span>' +
+      '<span>' + (m.next_expiry || '—') + '</span></div>';
+    html += '<div class="pnl-orders-row"><span>Puts Sold</span>' +
+      '<span>' + (m.puts_sold || 0) + '</span></div>';
+    html += '<div class="pnl-orders-row" style="border-top:none;margin-top:2px"><span>Calls Sold</span>' +
+      '<span>' + (m.calls_sold || 0) + '</span></div>';
+    html += '<div class="pnl-orders-row" style="border-top:none;margin-top:2px"><span>Margin Utilised</span>' +
+      '<span>' + _fmtRs(m.margin_utilised) + '</span></div>';
+    html += '<div class="pnl-orders-row" style="border-top:none;margin-top:2px"><span>Margin Available</span>' +
+      '<span>' + _fmtRs(m.margin_available) + '</span></div>';
+    html += '</div>';
+    return html;
+  }
+
+  // Render structured card body for NIFTY_MARGIN_ALERT notifications
+  function _marginAlertCardBody(n) {
+    var m = n.metadata || {};
+    function _fmtRs(val) {
+      if (val === undefined || val === null) return '—';
+      return '&#8377;' + Number(val).toLocaleString('en-IN', {maximumFractionDigits: 0});
+    }
+    var shortfall = (m.min_margin || 0) - (m.margin_utilised || 0);
+    var html = '<div class="pnl-summary">';
+    html += '<div class="pnl-row"><span>Margin Utilised</span>' +
+      '<strong style="color:#fc8181">' + _fmtRs(m.margin_utilised) + '</strong></div>';
+    html += '<div class="pnl-sub"><span>Min Required (D-' + (m.days_to_expiry || '?') + ')</span>' +
+      '<span>' + _fmtRs(m.min_margin) + '</span></div>';
+    html += '<div class="pnl-sub"><span>Shortfall</span>' +
+      '<span style="color:#fc8181">' + _fmtRs(shortfall) + '</span></div>';
+    html += '<div class="pnl-orders-row"><span>Puts Sold</span>' +
+      '<span>' + (m.puts_sold || 0) + '</span></div>';
+    html += '<div class="pnl-orders-row" style="border-top:none;margin-top:2px"><span>Calls Sold</span>' +
+      '<span>' + (m.calls_sold || 0) + '</span></div>';
+    html += '<div class="pnl-orders-row" style="border-top:none;margin-top:2px"><span>Next Expiry Delta</span>' +
+      '<span>' + (m.delta !== undefined ? Number(m.delta).toFixed(2) : '—') + '</span></div>';
+    html += '</div>';
+    return html;
+  }
+
+  // Render the body of a DAILY_PNL_SUMMARY card with color-coded P&L values
+  function _pnlSummaryHtml(n) {
+    var m = n.metadata || {};
+    var todayPnl      = m.day_pnl;
+    var todayRealized = m.realized_pnl;
+    var todayMtm      = m.unrealized_pnl;
+
+    function _color(val) { return val >= 0 ? '#48bb78' : '#fc8181'; }
+    function _fmt(val) {
+      if (val === undefined || val === null) return '—';
+      return (val >= 0 ? '+' : '') + '&#8377;' + Math.abs(Number(val)).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    var html = '<div class="pnl-summary">';
+    html += '<div class="pnl-row"><span>Day P&amp;L</span>' +
+      '<strong style="color:' + _color(todayPnl) + '">' + _fmt(todayPnl) + '</strong></div>';
+    html += '<div class="pnl-sub"><span>Realized</span>' +
+      '<span style="color:' + _color(todayRealized) + '">' + _fmt(todayRealized) + '</span></div>';
+    html += '<div class="pnl-sub"><span>Unrealized</span>' +
+      '<span style="color:' + _color(todayMtm) + '">' + _fmt(todayMtm) + '</span></div>';
+    html += '<div class="pnl-orders-row"><span>Orders</span>' +
+      '<span>' + (m.executed_orders || 0) + ' executed / ' + (m.total_orders || 0) + ' total</span></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function _cardBodyHtml(n) {
+    var isOrder       = (n.type === 'ORDER_EXECUTED' || n.type === 'ORDER_CANCELLED');
+    var isPnl         = (n.type === 'DAILY_PNL_SUMMARY');
+    var isMarginAlert = (n.type === 'NIFTY_MARGIN_ALERT');
+    var isDeltaAlert  = (n.type === 'NIFTY_DELTA_ALERT');
+
+    if (isPnl)         return _pnlSummaryHtml(n);
+    if (isMarginAlert) return _marginAlertCardBody(n);
+    if (isDeltaAlert)  return _deltaAlertCardBody(n);
+    var bodyHtml = '<div class="card-text">' + _esc(n.body) + '</div>';
+    if (isOrder) bodyHtml += _orderPillsHtml(n);
+    return bodyHtml;
+  }
+
+  function _activeCardHtml(n) {
+    return '<div class="notif-card" id="notif-card-' + n.id + '">' +
+      _sevIconHtml(n.severity) +
+      '<div class="card-body">' +
+        '<div class="card-title">' + _esc(n.title) + '</div>' +
+        _cardBodyHtml(n) +
+        '<div class="card-meta">' +
+          '<span class="card-type-badge">' + _esc(n.type) + '</span>' +
+          '<span>' + _relativeTime(n.created_at) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card-actions">' +
+        '<button class="btn-action btn-complete" onclick="notifAction(' + n.id + ', \'completed\', event)">Complete</button>' +
+        '<button class="btn-action btn-ignore"   onclick="notifAction(' + n.id + ', \'ignored\', event)">Ignore</button>' +
+        (n.metadata && n.metadata.action_url
+          ? '<a class="btn-action btn-link" href="' + _esc(n.metadata.action_url) + '" target="_blank" rel="noopener noreferrer">' + _esc(n.metadata.action_label || 'Open') + ' ↗</a>'
+          : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function _inactiveCardHtml(n) {
+    var badgeClass = n.status === 'completed' ? 'completed' : 'ignored';
+    var badgeLabel = n.status === 'completed' ? 'Completed' : 'Ignored';
+    return '<div class="notif-card" id="notif-card-' + n.id + '">' +
+      _sevIconHtml(n.severity) +
+      '<div class="card-body">' +
+        '<div class="card-title">' + _esc(n.title) + '</div>' +
+        _cardBodyHtml(n) +
+        '<div class="card-meta">' +
+          '<span class="card-type-badge">' + _esc(n.type) + '</span>' +
+          '<span>' + _relativeTime(n.created_at) + '</span>' +
+          '<span class="status-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card-actions">' +
+        '<button class="btn-action btn-delete" onclick="deleteNotification(' + n.id + ', event)" title="Delete"><i class="fas fa-trash-alt"></i></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Update per-tab count badges and overall active badge
+  function _updateTabBadges() {
+    var counts = { important: 0, orders: 0, others: 0 };
+    _activeNotifs.forEach(function (n) { counts[_getTab(n.type)]++; });
+    ['important', 'orders', 'others'].forEach(function (tab) {
+      var el = document.getElementById('tab-badge-' + tab);
+      if (el) {
+        el.textContent = counts[tab];
+        el.className = 'tab-badge' + (counts[tab] > 0 ? ' has-items' : '');
+      }
+    });
+    var totalBadge = document.getElementById('active-count-badge');
+    if (totalBadge) totalBadge.textContent = _activeNotifs.length;
+  }
+
+  function _renderActive(notifications) {
+    var filtered = notifications.filter(function (n) { return _getTab(n.type) === _activeTab; });
+    var container = document.getElementById('active-section');
+    if (!filtered.length) {
+      container.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i>No ' + _activeTab + ' notifications</div>';
+    } else {
+      container.innerHTML = filtered.map(_activeCardHtml).join('');
+    }
+    _updateTabBadges();
+
+    // Update ignore button label
+    var ignBtn = document.getElementById('ignore-tab-btn');
+    if (ignBtn) {
+      var label = _activeTab.charAt(0).toUpperCase() + _activeTab.slice(1);
+      ignBtn.textContent = 'Ignore ' + label;
+    }
+  }
+
+  function _renderInactive(notifications) {
+    var container = document.getElementById('inactive-section');
+    var badge = document.getElementById('inactive-count-badge');
+    if (badge) badge.textContent = notifications.length;
+    if (!notifications.length) {
+      container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i>Nothing completed or ignored yet</div>';
+      return;
+    }
+    container.innerHTML = notifications.map(_inactiveCardHtml).join('');
+  }
+
+  window.switchTab = function (tab) {
+    _activeTab = tab;
+    ['important', 'orders', 'others'].forEach(function (t) {
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn) btn.className = 'tab-btn' + (t === tab ? ' active' : '');
+    });
+    _renderActive(_activeNotifs);
+  };
+
+  function loadNotifications() {
+    fetch('/notifications/all')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        _activeNotifs = data.active || [];
+        _inactiveNotifs = data.inactive || [];
+        _renderActive(_activeNotifs);
+        _renderInactive(_inactiveNotifs);
+      })
+      .catch(function () {
+        document.getElementById('active-section').innerHTML =
+          '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>Could not load notifications</div>';
+        document.getElementById('inactive-section').innerHTML = '';
+      });
+  }
+
+  window.notifAction = function (notifId, newStatus, evt) {
+    if (evt) evt.stopPropagation();
+    var card = document.getElementById('notif-card-' + notifId);
+    var buttons = card ? card.querySelectorAll('.btn-action') : [];
+    buttons.forEach(function (b) { b.disabled = true; });
+
+    fetch('/notifications/update-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: notifId, status: newStatus }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          buttons.forEach(function (b) { b.disabled = false; });
+          return;
+        }
+        if (card) {
+          card.classList.add('fading-out');
+          setTimeout(function () {
+            // Find the notification object from _activeNotifs before filtering it out
+            var movedNotif = null;
+            for (var i = 0; i < _activeNotifs.length; i++) {
+              if (_activeNotifs[i].id === notifId) { movedNotif = _activeNotifs[i]; break; }
+            }
+            _activeNotifs = _activeNotifs.filter(function (n) { return n.id !== notifId; });
+            if (movedNotif) {
+              _inactiveNotifs = [Object.assign({}, movedNotif, { status: newStatus })].concat(_inactiveNotifs);
+            }
+            _renderActive(_activeNotifs);
+            _renderInactive(_inactiveNotifs);
+          }, 300);
+        }
+      })
+      .catch(function () {
+        buttons.forEach(function (b) { b.disabled = false; });
+      });
+  };
+
+  window.ignoreCurrentTab = function () {
+    var btn = document.getElementById('ignore-tab-btn');
+    if (btn) btn.disabled = true;
+
+    // Compute which notification types belong to the current tab
+    var typesToIgnore;
+    if (_activeTab === 'others') {
+      // Others = everything not in important or orders
+      var knownTypes = TAB_TYPES.important.concat(TAB_TYPES.orders);
+      var othersTypes = [];
+      _activeNotifs.forEach(function (n) {
+        if (knownTypes.indexOf(n.type) === -1 && othersTypes.indexOf(n.type) === -1) {
+          othersTypes.push(n.type);
+        }
+      });
+      typesToIgnore = othersTypes.length ? othersTypes : null;
+    } else {
+      typesToIgnore = TAB_TYPES[_activeTab];
+    }
+
+    var body = typesToIgnore ? JSON.stringify({ types: typesToIgnore }) : '{}';
+    fetch('/notifications/ignore-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { if (btn) btn.disabled = false; return; }
+        var moved = _activeNotifs
+          .filter(function (n) { return _getTab(n.type) === _activeTab; })
+          .map(function (n) { return Object.assign({}, n, { status: 'ignored' }); });
+        _activeNotifs = _activeNotifs.filter(function (n) { return _getTab(n.type) !== _activeTab; });
+        _inactiveNotifs = moved.concat(_inactiveNotifs);
+        _renderActive(_activeNotifs);
+        _renderInactive(_inactiveNotifs);
+        if (btn) btn.disabled = false;
+      })
+      .catch(function () { if (btn) btn.disabled = false; });
+  };
+
+  window.deleteNotification = function (notifId, evt) {
+    if (evt) evt.stopPropagation();
+    var card = document.getElementById('notif-card-' + notifId);
+    var btn = card ? card.querySelector('.btn-delete') : null;
+    if (btn) btn.disabled = true;
+
+    fetch('/notifications/delete/' + notifId, { method: 'DELETE' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { if (btn) btn.disabled = false; return; }
+        if (card) {
+          card.classList.add('fading-out');
+          setTimeout(function () {
+            _inactiveNotifs = _inactiveNotifs.filter(function (n) { return n.id !== notifId; });
+            _renderInactive(_inactiveNotifs);
+          }, 300);
+        }
+      })
+      .catch(function () { if (btn) btn.disabled = false; });
+  };
+
+  window.deleteAllInactive = function () {
+    var btn = document.getElementById('delete-all-inactive-btn');
+    if (btn) btn.disabled = true;
+
+    fetch('/notifications/delete-all-inactive', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { if (btn) btn.disabled = false; return; }
+        _inactiveNotifs = [];
+        _renderInactive(_inactiveNotifs);
+        if (btn) btn.disabled = false;
+      })
+      .catch(function () { if (btn) btn.disabled = false; });
+  };
+
+  loadNotifications();
+})();
+</script>
+
+</body>
+</html>

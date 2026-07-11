@@ -1,0 +1,199 @@
+<!-- ── Notification toast container ──────────────────────────────────── -->
+<div id="toast-container" style="
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 380px;
+    pointer-events: none;
+"></div>
+
+<style>
+    .notif-toast {
+        background: #1e2a3a;
+        border-left: 4px solid #64b5f6;
+        border-radius: 8px;
+        padding: 12px 16px;
+        color: #e0e0e0;
+        font-size: 14px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        pointer-events: all;
+        animation: notif-slide-in 0.3s ease;
+        position: relative;
+    }
+    .notif-toast.severity-error   { border-left-color: #ef5350; }
+    .notif-toast.severity-warning { border-left-color: #ffb300; }
+    .notif-toast.severity-info    { border-left-color: #64b5f6; }
+    .notif-toast strong { display: block; margin-bottom: 4px; }
+    .notif-toast .notif-close {
+        position: absolute;
+        top: 8px; right: 10px;
+        background: none; border: none;
+        color: #aaa; cursor: pointer;
+        font-size: 16px; line-height: 1;
+    }
+    @keyframes notif-slide-in {
+        from { transform: translateX(110%); opacity: 0; }
+        to   { transform: translateX(0);    opacity: 1; }
+    }
+</style>
+
+<script>
+(function () {
+    "use strict";
+
+    const POLL_INTERVAL_MS = 30000;
+    const AUTO_DISMISS_MS  = 15000;
+    const notificationSound = new Audio('/notifications/sound');
+    const TOAST_ORDER_TYPES = new Set(['ORDER_EXECUTED', 'ORDER_CANCELLED']);
+
+    // Unlock audio on first user interaction (browser autoplay policy)
+    let soundUnlocked = false;
+    document.addEventListener('click', () => { soundUnlocked = true; }, { once: true });
+
+    function showToast(notification) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `notif-toast severity-${notification.severity || 'info'}`;
+        toast.dataset.notificationId = notification.id;
+        toast.innerHTML =
+            `<button class="notif-close" onclick="dismissToast(this)">&#x2715;</button>` +
+            `<strong>${escapeHtml(notification.title)}</strong>` +
+            `<span>${escapeHtml(notification.body)}</span>`;
+        container.appendChild(toast);
+
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, AUTO_DISMISS_MS);
+    }
+
+    window.dismissToast = function (btn) {
+        const toast = btn.closest('.notif-toast');
+        if (!toast) return;
+        const notificationId = toast.dataset.notificationId;
+        toast.remove();
+        if (notificationId) {
+            fetch('/notifications/mark-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: parseInt(notificationId, 10) }),
+            }).catch(() => {});
+        }
+    };
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    async function pollNotifications() {
+        try {
+            const resp = await fetch('/notifications/unread');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const notifications = data.notifications || [];
+            if (notifications.length === 0) return;
+
+            const nonOrderNotifs = notifications.filter(n => !TOAST_ORDER_TYPES.has(n.type));
+
+            // Play sound and show toasts only for non-order notifications
+            if (soundUnlocked && nonOrderNotifs.length > 0) {
+                notificationSound.play().catch(() => {});
+            }
+            nonOrderNotifs.forEach(showToast);
+
+            // Mark all shown as read so they don't reappear next poll
+            await fetch('/notifications/mark-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ all: true }),
+            });
+        } catch (err) {
+            console.warn('Notification poll failed:', err);
+        }
+    }
+
+    // ── Browser Web Push registration ─────────────────────────────────
+    async function registerWebPush() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        try {
+            const reg = await navigator.serviceWorker.register(
+                '/notifications/static/sw.js', { scope: '/' }
+            );
+
+            const keyResp = await fetch('/notifications/vapid-public-key');
+            const { public_key } = await keyResp.json();
+            if (!public_key) return; // VAPID not configured yet
+
+            const appServerKey = urlBase64ToUint8Array(public_key);
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: appServerKey,
+                });
+            }
+
+            const rawP256dh = sub.getKey('p256dh');
+            const rawAuth   = sub.getKey('auth');
+            await fetch('/notifications/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    endpoint: sub.endpoint,
+                    keys: {
+                        p256dh: btoa(String.fromCharCode(...new Uint8Array(rawP256dh))),
+                        auth:   btoa(String.fromCharCode(...new Uint8Array(rawAuth))),
+                    },
+                }),
+            });
+        } catch (err) {
+            console.warn('Web push registration failed:', err);
+        }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        return Uint8Array.from(Array.from(rawData).map(c => c.charCodeAt(0)));
+    }
+
+    // Start polling immediately, then on interval
+    pollNotifications();
+    setInterval(pollNotifications, POLL_INTERVAL_MS);
+
+    // Register push after page load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', registerWebPush);
+    } else {
+        registerWebPush();
+    }
+})();
+
+// Global modal manager: ESC closes the topmost open modal.
+// Each modal's open function calls ModalManager.push(closeFn);
+// each close function calls ModalManager.remove(closeFn).
+if (!window.ModalManager) {
+    window.ModalManager = {
+        _stack: [],
+        push: function(closeFn) { this._stack.push(closeFn); },
+        remove: function(closeFn) {
+            var i = this._stack.lastIndexOf(closeFn);
+            if (i !== -1) this._stack.splice(i, 1);
+        },
+        closeTop: function() {
+            if (this._stack.length) this._stack[this._stack.length - 1]();
+        }
+    };
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') window.ModalManager.closeTop();
+    });
+}
+</script>

@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Covered Calls</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f1117; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 13px; }
+
+    /* ---- layout ---- */
+    .page-body { padding: 16px; max-width: 1600px; margin: 0 auto; }
+
+    /* ---- expiry banner ---- */
+    .expiry-banner {
+      background: linear-gradient(135deg, #1a1f2e, #1e2535);
+      border: 1px solid #2d3748;
+      border-left: 4px solid #f6ad55;
+      border-radius: 8px;
+      padding: 12px 18px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .expiry-banner .banner-title { font-size: 15px; font-weight: 700; color: #f6ad55; }
+    .expiry-banner .banner-days { font-size: 13px; color: #a0aec0; }
+    .expiry-banner .banner-days b { color: #68d391; }
+    .expiry-banner.urgent .banner-days b { color: #fc8181; }
+
+    /* ---- config bar ---- */
+    .config-bar {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .config-bar label { font-size: 12px; color: #a0aec0; white-space: nowrap; }
+    .config-bar input[type="number"] {
+      background: #2d3748; border: 1px solid #4a5568; border-radius: 6px;
+      color: #e2e8f0; padding: 4px 8px; font-size: 12px; width: 80px;
+    }
+    .config-bar input[type="number"]:focus { outline: none; border-color: #f6ad55; }
+    .btn { border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 14px; transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: linear-gradient(135deg, #f6ad55, #ed8936); color: #1a1f2e; }
+    .btn-success { background: linear-gradient(135deg, #48bb78, #38a169); color: white; }
+    .btn-danger  { background: linear-gradient(135deg, #fc8181, #e53e3e); color: white; }
+    .btn-sm { padding: 3px 10px; font-size: 11px; }
+    .btn-icon {
+      background: #2d3748; border: 1px solid #4a5568; border-radius: 4px;
+      color: #e2e8f0; cursor: pointer; font-size: 14px; line-height: 1;
+      padding: 3px 7px; transition: background 0.1s;
+    }
+    .btn-icon:hover { background: #4a5568; }
+
+    /* ---- summary chips ---- */
+    .summary-chips { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .chip {
+      background: #1a1f2e; border: 1px solid #2d3748; border-radius: 20px;
+      padding: 5px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+    }
+    .chip .chip-value { font-weight: 700; font-size: 14px; }
+    .chip.chip-active .chip-value { color: #48bb78; }
+    .chip.chip-partial .chip-value { color: #f6ad55; }
+    .chip.chip-missing .chip-value { color: #fc8181; }
+    .chip.chip-premium .chip-value { color: #63b3ed; }
+
+    /* ---- table ---- */
+    .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #2d3748; }
+    table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+    thead th {
+      background: #1a1f2e; color: #a0aec0; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 10px 12px; text-align: left; border-bottom: 1px solid #2d3748;
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #1e2535; transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #161b27; }
+    td { padding: 10px 12px; vertical-align: middle; }
+
+    /* ---- status badges ---- */
+    .badge {
+      display: inline-block; border-radius: 12px; font-size: 11px; font-weight: 600;
+      padding: 2px 10px; white-space: nowrap;
+    }
+    .badge-active  { background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); }
+    .badge-partial { background: rgba(246,173,85,0.15);  color: #f6ad55; border: 1px solid rgba(246,173,85,0.3); }
+    .badge-missing { background: rgba(252,129,129,0.15); color: #fc8181; border: 1px solid rgba(252,129,129,0.3); }
+    .badge-itm     { background: rgba(252,129,129,0.25); color: #fc8181; border: 1px solid rgba(252,129,129,0.5); }
+
+    /* ---- pnl colouring ---- */
+    .pnl-pos { color: #48bb78; }
+    .pnl-neg { color: #fc8181; }
+
+    /* ---- expiry select ---- */
+    .config-bar select {
+      background: #2d3748; border: 1px solid #4a5568; border-radius: 6px;
+      color: #e2e8f0; padding: 4px 8px; font-size: 12px;
+    }
+    .config-bar select:focus { outline: none; border-color: #f6ad55; }
+
+    /* ---- strike navigator ---- */
+    .strike-nav {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .strike-nav-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+    }
+    .strike-pill {
+      background: #1e293b;
+      border: 1px solid #4a5568;
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #f6ad55;
+      min-width: 120px;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+    .strike-pill.muted {
+      color: #718096;
+      border-color: #2d3748;
+    }
+    .strike-otm-pct {
+      font-size: 10px;
+      color: #a0aec0;
+      text-align: center;
+    }
+    .price-input-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 1px;
+    }
+    .prem-per-lot-label {
+      font-size: 10px;
+      color: #63b3ed;
+      white-space: nowrap;
+    }
+    .strike-nav .btn-icon { font-size: 16px; padding: 4px 9px; }
+
+    /* ---- bid/ask display ---- */
+    .bidask-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .bid-val { color: #48bb78; font-weight: 600; }
+    .ask-val { color: #fc8181; font-weight: 600; }
+    .bidask-label { color: #718096; font-size: 10px; text-transform: uppercase; }
+
+    /* ---- price input ---- */
+    .price-input {
+      background: #2d3748; border: 1px solid #4a5568; border-radius: 6px;
+      color: #e2e8f0; padding: 4px 8px; font-size: 12px; width: 85px;
+    }
+    .price-input:focus { outline: none; border-color: #f6ad55; }
+
+    /* ---- modal ---- */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65); z-index: 3000;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #1a1f2e; border: 1px solid #2d3748; border-radius: 12px;
+      padding: 24px 28px; min-width: 400px; max-width: 520px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .modal-title { font-size: 15px; font-weight: 700; color: #f6ad55; margin-bottom: 16px; }
+    .modal-detail {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 7px 0; border-bottom: 1px solid #232836; font-size: 13px;
+    }
+    .modal-detail:last-of-type { border-bottom: none; }
+    .modal-detail .mkey { color: #a0aec0; }
+    .modal-detail .mval { color: #e2e8f0; font-weight: 600; }
+    .modal-input {
+      background: #2d3748; border: 1px solid #4a5568; border-radius: 6px;
+      color: #e2e8f0; padding: 4px 10px; font-size: 13px; font-weight: 600;
+      width: 130px; text-align: right;
+    }
+    .modal-input:focus { outline: none; border-color: #f6ad55; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+
+    /* ---- est premium highlight ---- */
+    .est-premium-val { color: #63b3ed; font-size: 15px; font-weight: 700; }
+
+    /* ---- pending badge + chip ---- */
+    .badge-pending { background: rgba(99,179,237,0.15); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+    .chip.chip-pending .chip-value { color: #63b3ed; }
+
+    /* ---- section headers (Pending Fill / Active) ---- */
+    .section-header {
+      font-size: 12px; font-weight: 700; color: #a0aec0;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 14px 0 6px; margin-top: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-header .section-count {
+      background: #2d3748; border-radius: 10px;
+      padding: 1px 8px; font-size: 11px; color: #e2e8f0;
+    }
+    .section-refresh-btn {
+      margin-left: 4px; background: none; border: 1px solid #4a5568;
+      border-radius: 6px; color: #a0aec0; cursor: pointer;
+      padding: 2px 8px; font-size: 11px; line-height: 1.6;
+      display: inline-flex; align-items: center; gap: 4px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .section-refresh-btn:hover { border-color: #718096; color: #e2e8f0; }
+    .section-refresh-btn.spinning i { animation: spin 0.7s linear infinite; }
+
+    /* ---- loading / empty states ---- */
+    .state-row td { text-align: center; padding: 40px; color: #4a5568; font-size: 13px; }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #2d3748; border-top-color: #f6ad55; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 4000; display: flex; flex-direction: column; gap: 8px; }
+    .toast {
+      padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5); animation: slideIn 0.2s ease;
+    }
+    .toast.success { background: rgba(72,187,120,0.95); color: white; }
+    .toast.error   { background: rgba(252,129,129,0.95); color: white; }
+    @keyframes slideIn { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+{% include '_header_partial.html' %}
+
+<div class="page-body">
+
+  <!-- Expiry Banner -->
+  <div class="expiry-banner" id="expiryBanner">
+    <span class="banner-title" id="bannerTitle">Covered Calls</span>
+    <span class="banner-days" id="bannerDays">Loading...</span>
+  </div>
+
+  <!-- Config Bar -->
+  <div class="config-bar">
+    <label>Expiry
+      <select id="cfgExpiry" onchange="loadDashboard()">
+        <option value="">Loading...</option>
+      </select>
+    </label>
+    <label>OTM %
+      <input type="number" id="cfgOtm" value="5" min="1" max="30" step="0.5" />
+    </label>
+    <label>Min Premium ₹/lot
+      <input type="number" id="cfgMinPremium" value="3000" min="0" step="100" />
+    </label>
+    <button class="btn btn-primary" onclick="loadDashboard()">
+      <i class="fas fa-sync-alt"></i> Refresh
+    </button>
+    <a href="/covered_calls/debug" style="margin-left:8px;font-size:11px;color:#718096;text-decoration:none;" title="See why stocks are included/excluded">
+      <i class="fas fa-bug"></i> Debug Holdings
+    </a>
+  </div>
+
+  <!-- Summary Chips -->
+  <div class="summary-chips">
+    <div class="chip chip-active">  <i class="fas fa-check-circle"></i> Active <span class="chip-value" id="sumActive">–</span></div>
+    <div class="chip chip-partial"> <i class="fas fa-adjust"></i> Partial <span class="chip-value" id="sumPartial">–</span></div>
+    <div class="chip chip-missing"> <i class="fas fa-times-circle"></i> Missing <span class="chip-value" id="sumMissing">–</span></div>
+    <div class="chip chip-premium"> <i class="fas fa-rupee-sign"></i> Collected <span class="chip-value" id="sumPremium">–</span></div>
+    <div class="chip chip-pending"> <i class="fas fa-clock"></i> Pending <span class="chip-value" id="sumPending">–</span></div>
+  </div>
+
+  <!-- Main Table (MISSING + PARTIAL) -->
+  <div class="table-wrap">
+    <table id="ccTable">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Holdings</th>
+          <th>Lot Size</th>
+          <th>Coverage</th>
+          <th>LTP</th>
+          <th>Avg Price</th>
+          <th>Status</th>
+          <th>Strike / CC</th>
+          <th>Bid / Ask</th>
+          <th>Expiry</th>
+          <th>Premium / Lot</th>
+          <th>Yield %/yr</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="ccTbody">
+        <tr class="state-row"><td colspan="13"><span class="spinner"></span> Loading covered calls...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pending Fill Section -->
+  <div id="pendingSection" style="display:none">
+    <div class="section-header">
+      <i class="fas fa-clock" style="color:#63b3ed"></i>
+      Pending Fill
+      <span class="section-count" id="pendingCount">0</span>
+      <button class="section-refresh-btn" id="pendingRefreshBtn" onclick="refreshSection('pending')" title="Refresh pending fills">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table id="pendingTable">
+        <thead><tr>
+          <th>Symbol</th>
+          <th>Sold CE</th>
+          <th>Strike</th>
+          <th>Expiry</th>
+          <th>Lots</th>
+          <th>Limit Price</th>
+          <th>Est. Premium</th>
+          <th>Placed At</th>
+        </tr></thead>
+        <tbody id="pendingTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Active Covered Calls Section -->
+  <div id="activeSection" style="display:none">
+    <div class="section-header">
+      <i class="fas fa-check-circle" style="color:#48bb78"></i>
+      Active Covered Calls
+      <span class="section-count" id="activeCount">0</span>
+      <button class="section-refresh-btn" id="activeRefreshBtn" onclick="refreshSection('active')" title="Refresh active covered calls">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table id="activeTable">
+        <thead><tr>
+          <th>Symbol</th>
+          <th>Holdings</th>
+          <th>LTP</th>
+          <th>Avg Buy</th>
+          <th>Holding P&amp;L</th>
+          <th>Sold CE</th>
+          <th>Strike</th>
+          <th>Expiry</th>
+          <th>Days Left</th>
+          <th>Sold @</th>
+          <th>CC LTP</th>
+          <th>CC P&amp;L</th>
+          <th>Qty Sold</th>
+        </tr></thead>
+        <tbody id="activeTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-box">
+    <div class="modal-title"><i class="fas fa-phone-volume"></i> Confirm Covered Call</div>
+    <div class="modal-detail"><span class="mkey">Symbol</span><span class="mval" id="mSymbol">–</span></div>
+    <div class="modal-detail"><span class="mkey">Option</span><span class="mval" id="mTs">–</span></div>
+    <div class="modal-detail"><span class="mkey">Strike</span><span class="mval" id="mStrike">–</span></div>
+    <div class="modal-detail"><span class="mkey">Expiry</span><span class="mval" id="mExpiry">–</span></div>
+    <div class="modal-detail">
+      <span class="mkey">Lots</span>
+      <input class="modal-input" type="number" id="mLots" min="1" step="1" oninput="onModalLotsChange()" />
+    </div>
+    <div class="modal-detail"><span class="mkey">Quantity (shares)</span><span class="mval" id="mQty">–</span></div>
+    <div class="modal-detail">
+      <span class="mkey">Limit Price</span>
+      <input class="modal-input" type="number" id="mLimitPrice" step="0.05" min="0.05" oninput="onModalPriceChange()" />
+    </div>
+    <div class="modal-detail">
+      <span class="mkey">Bid / Ask</span>
+      <span class="mval" id="mBidAsk">–</span>
+    </div>
+    <div class="modal-detail">
+      <span class="mkey">Premium / lot</span>
+      <span class="mval" id="mPremPerLot" style="color:#63b3ed;">–</span>
+    </div>
+    <div class="modal-detail" style="background:rgba(99,179,237,0.07);border-radius:6px;padding:8px 6px;margin-top:4px;">
+      <span class="mkey" style="font-size:14px;font-weight:700;">Est. Premium</span>
+      <span class="est-premium-val" id="mPremium">–</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#2d3748;color:#e2e8f0;" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" id="confirmBtn" onclick="confirmPlace()">
+        <i class="fas fa-check"></i> Confirm & Place
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+(function() {
+  // Per-symbol candidates array: { [symbol]: [{tradingsymbol, strike, expiry, lot_size, option_ltp, bid, ask, ...}] }
+  var _allCandidates = {};
+  // Current selected index per symbol
+  var _selectedIdx = {};
+  var _pendingOrder = null;
+  var _pendingLotSize = 1;
+
+  // ---- Config helpers ----
+  function getConfig() {
+    return {
+      otm_pct: parseFloat(document.getElementById('cfgOtm').value) || 5,
+      min_premium: parseFloat(document.getElementById('cfgMinPremium').value) || 3000,
+      expiry: document.getElementById('cfgExpiry').value || ''
+    };
+  }
+
+  // ---- Formatting ----
+  function fmt(n, d) { return (n || 0).toLocaleString('en-IN', {minimumFractionDigits: d || 0, maximumFractionDigits: d || 0}); }
+  function fmtRs(n) { return '₹' + fmt(n, 0); }
+  function pnlClass(n) { return n >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+  function pnlSign(n) { return n >= 0 ? '+' : ''; }
+
+  function statusBadge(status) {
+    var map = {
+      'ACTIVE':  '<span class="badge badge-active">&#9679; Active</span>',
+      'PARTIAL': '<span class="badge badge-partial">&#9679; Partial</span>',
+      'MISSING': '<span class="badge badge-missing">&#9679; Missing</span>'
+    };
+    return map[status] || status;
+  }
+
+  // ---- Load dashboard ----
+  window.loadDashboard = function() {
+    var cfg = getConfig();
+    var tbody = document.getElementById('ccTbody');
+    tbody.innerHTML = '<tr class="state-row"><td colspan="13"><span class="spinner"></span> Loading...</td></tr>';
+    _allCandidates = {};
+    _selectedIdx = {};
+
+    var url = '/covered_calls/api/status?otm_pct=' + cfg.otm_pct + '&min_premium=' + cfg.min_premium;
+    if (cfg.expiry) url += '&expiry=' + cfg.expiry;
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          tbody.innerHTML = '<tr class="state-row"><td colspan="13" style="color:#fc8181"><i class="fas fa-exclamation-triangle"></i> ' + data.error + '</td></tr>';
+          return;
+        }
+
+        // Banner
+        var banner = document.getElementById('expiryBanner');
+        var days = data.working_days_remaining || 0;
+        document.getElementById('bannerTitle').textContent = 'Covered Calls — ' + (data.expiry_label || '');
+        document.getElementById('bannerDays').innerHTML = '<b>' + days + '</b> working days to expiry (' + (data.expiry || '') + ')';
+        if (days < 7) banner.classList.add('urgent'); else banner.classList.remove('urgent');
+
+        // Summary chips
+        var s = data.summary || {};
+        document.getElementById('sumActive').textContent  = s.active   || 0;
+        document.getElementById('sumPartial').textContent = s.partial  || 0;
+        document.getElementById('sumMissing').textContent = s.missing  || 0;
+        document.getElementById('sumPremium').textContent = fmtRs(s.total_premium_collected || 0);
+
+        var rows = data.rows || [];
+
+        // Split into three groups
+        var actionRows  = rows.filter(function(r) { return r.status === 'MISSING' || r.status === 'PARTIAL'; });
+        var pendingRows = rows.filter(function(r) { return r.status === 'PENDING_FILL'; });
+        var activeRows  = rows.filter(function(r) { return r.status === 'ACTIVE'; });
+
+        document.getElementById('sumPending').textContent = pendingRows.length || 0;
+
+        // Seed candidates for MISSING/PARTIAL rows
+        actionRows.forEach(function(row) {
+          if (row.candidates && row.candidates.length > 0) {
+            _allCandidates[row.symbol] = row.candidates;
+            var firstGood = row.candidates.findIndex(function(c) { return c.meets_otm_pct && c.meets_min_premium; });
+            if (firstGood < 0) firstGood = row.candidates.findIndex(function(c) { return c.meets_otm_pct; });
+            _selectedIdx[row.symbol] = firstGood >= 0 ? firstGood : 0;
+          }
+        });
+
+        if (actionRows.length === 0) {
+          tbody.innerHTML = '<tr class="state-row"><td colspan="13">No MISSING or PARTIAL positions</td></tr>';
+        } else {
+          tbody.innerHTML = actionRows.map(function(row) { return buildRow(row, cfg); }).join('');
+        }
+
+        buildPendingTable(pendingRows);
+        buildActiveTable(activeRows);
+      })
+      .catch(function(err) {
+        tbody.innerHTML = '<tr class="state-row"><td colspan="13" style="color:#fc8181">Network error: ' + err.message + '</td></tr>';
+      });
+  };
+
+  function getCurrentCandidate(symbol) {
+    var candidates = _allCandidates[symbol] || [];
+    var idx = _selectedIdx[symbol] || 0;
+    return candidates[idx] || null;
+  }
+
+  // ---- Strike navigation (↑ = higher strike, ↓ = lower strike) ----
+  window.strikeUp = function(symbol) {
+    var candidates = _allCandidates[symbol] || [];
+    if (!candidates.length) return;
+    var idx = (_selectedIdx[symbol] || 0);
+    if (idx < candidates.length - 1) {
+      _selectedIdx[symbol] = idx + 1;
+      refreshStrikeRow(symbol);
+    }
+  };
+
+  window.strikeDown = function(symbol) {
+    var candidates = _allCandidates[symbol] || [];
+    if (!candidates.length) return;
+    var idx = (_selectedIdx[symbol] || 0);
+    if (idx > 0) {
+      _selectedIdx[symbol] = idx - 1;
+      refreshStrikeRow(symbol);
+    }
+  };
+
+  function refreshStrikeRow(symbol) {
+    var c = getCurrentCandidate(symbol);
+    if (!c) return;
+    var rowId = symbol.replace(/[^A-Z0-9]/g, '_');
+
+    // Update strike pill — muted when candidate doesn't meet premium criteria
+    var pill = document.getElementById('spill_' + rowId);
+    if (pill) {
+      pill.textContent = fmt(c.strike, 0) + ' CE';
+      if (c.meets_min_premium && c.meets_otm_pct) {
+        pill.classList.remove('muted');
+      } else {
+        pill.classList.add('muted');
+      }
+    }
+
+    // OTM% label below pill
+    var otmEl = document.getElementById('otmpct_' + rowId);
+    if (otmEl) otmEl.textContent = '+' + fmt(c.otm_pct, 1) + '% OTM';
+
+    // Update up/down button states (only disabled at array bounds)
+    var candidates = _allCandidates[symbol] || [];
+    var idx = _selectedIdx[symbol] || 0;
+    var upBtn = document.getElementById('sup_' + rowId);
+    var downBtn = document.getElementById('sdown_' + rowId);
+    if (upBtn) upBtn.disabled = (idx >= candidates.length - 1);
+    if (downBtn) downBtn.disabled = (idx <= 0);
+
+    // Update bid/ask
+    var bidAsk = document.getElementById('bidask_' + rowId);
+    if (bidAsk) bidAsk.innerHTML = formatBidAsk(c.bid, c.ask, c.mid_price);
+
+    // Update summary cells (strike, premium, yield)
+    var strikeCell = document.getElementById('scell_' + rowId);
+    if (strikeCell) strikeCell.innerHTML = fmt(c.strike, 0) + ' CE';
+
+    var premCell = document.getElementById('pcell_' + rowId);
+    if (premCell) premCell.textContent = fmtRs(c.premium_per_lot) + '/lot';
+
+    var yieldCell = document.getElementById('ycell_' + rowId);
+    if (yieldCell) yieldCell.textContent = fmt(c.annualized_yield_pct, 1) + '%';
+
+    var expCell = document.getElementById('expcell_' + rowId);
+    if (expCell) expCell.textContent = c.expiry ? c.expiry.substring(0, 10) : '—';
+
+    // Update price input and premium-per-lot label
+    var priceInput = document.getElementById('price_' + rowId);
+    if (priceInput) {
+      priceInput.value = c.mid_price.toFixed(2);
+      updatePremPerLot(rowId, c.mid_price, c.lot_size);
+    }
+  }
+
+  window.onPriceInputChange = function(rowId, lotSize) {
+    var priceInput = document.getElementById('price_' + rowId);
+    var price = parseFloat(priceInput ? priceInput.value : 0) || 0;
+    updatePremPerLot(rowId, price, lotSize);
+  };
+
+  function updatePremPerLot(rowId, price, lotSize) {
+    var el = document.getElementById('pperlot_' + rowId);
+    if (el) el.textContent = fmtRs(price * lotSize) + '/lot';
+  }
+
+  function formatBidAsk(bid, ask, mid) {
+    var b = bid > 0 ? '<span class="bid-val">₹' + fmt(bid, 2) + '</span>' : '<span style="color:#4a5568">—</span>';
+    var a = ask > 0 ? '<span class="ask-val">₹' + fmt(ask, 2) + '</span>' : '<span style="color:#4a5568">—</span>';
+    var m = (mid > 0) ? ' <span class="bidask-label">Mid</span><span style="color:#e2b714;font-weight:600">₹' + fmt(mid, 2) + '</span>' : '';
+    return '<span class="bidask-label">B</span>' + b + ' <span class="bidask-label">A</span>' + a + m;
+  }
+
+  function buildRow(row, cfg) {
+    var acc = row.active_cc;
+    var candidates = row.candidates || [];
+    var rowId = row.symbol.replace(/[^A-Z0-9]/g, '_');
+    var first = candidates.length > 0 ? candidates[0] : null;
+
+    // Strike/CC cell
+    var strikeHtml = '—';
+    var bidAskHtml = '—';
+    var expiryHtml = '—';
+    var premiumHtml = '—';
+    var yieldHtml = '—';
+
+    if (acc) {
+      var itm = acc.ltp > acc.strike;
+      var badgeSuffix = itm ? ' <span class="badge badge-itm">ITM</span>' : '';
+      strikeHtml = '<b id="scell_' + rowId + '">' + fmt(acc.strike, 0) + '</b>' + badgeSuffix;
+      expiryHtml = '<span id="expcell_' + rowId + '">' + (acc.expiry ? acc.expiry.substring(0, 10) : '—') + '</span>';
+      var ccPnl = acc.unrealised_pnl;
+      premiumHtml = '<span id="pcell_' + rowId + '" class="' + pnlClass(ccPnl) + '">' + pnlSign(ccPnl) + fmtRs(ccPnl) + '</span>';
+      yieldHtml = '<span id="ycell_' + rowId + '">' + fmtRs(acc.avg_sell_price * acc.short_qty) + '</span>';
+    } else if (candidates.length > 0) {
+      var initIdx = _selectedIdx[row.symbol] || 0;
+      var initC = candidates[initIdx] || candidates[0];
+      strikeHtml = '<span id="scell_' + rowId + '">' + fmt(initC.strike, 0) + ' CE</span>';
+      expiryHtml = '<span id="expcell_' + rowId + '">' + (initC.expiry ? initC.expiry.substring(0, 10) : '—') + '</span>';
+      premiumHtml = '<span id="pcell_' + rowId + '">' + fmtRs(initC.premium_per_lot) + '/lot</span>';
+      yieldHtml = '<span id="ycell_' + rowId + '">' + fmt(initC.annualized_yield_pct, 1) + '%</span>';
+      bidAskHtml = '<span id="bidask_' + rowId + '" class="bidask-cell">' + formatBidAsk(initC.bid, initC.ask, initC.mid_price) + '</span>';
+    }
+
+    // Action cell
+    var actionCell = '';
+    if (row.status === 'ACTIVE') {
+      actionCell = '<span style="color:#718096;font-size:11px">Sold ' + (acc ? acc.short_qty : '—') + ' shares</span>';
+    } else if (candidates.length === 0) {
+      actionCell = '<span style="color:#718096;font-size:11px">No candidates (min ₹' + fmt(cfg.min_premium, 0) + '/lot)</span>';
+    } else {
+      var selectedIdx = _selectedIdx[row.symbol] || 0;
+      var displayCandidate = candidates[selectedIdx] || first;
+      var upDisabled = (selectedIdx >= candidates.length - 1) ? ' disabled' : '';
+      var downDisabled = (selectedIdx <= 0) ? ' disabled' : '';
+      var pillClass = (displayCandidate.meets_min_premium && displayCandidate.meets_otm_pct) ? 'strike-pill' : 'strike-pill muted';
+      var initPremPerLot = fmtRs(displayCandidate.premium_per_lot || 0);
+      actionCell =
+        '<div class="strike-nav">'
+        + '<button class="btn-icon" id="sdown_' + rowId + '" onclick="strikeDown(\'' + row.symbol + '\')"' + downDisabled + ' title="Lower strike">&#8595;</button>'
+        + '<div class="strike-nav-col">'
+        + '<span class="' + pillClass + '" id="spill_' + rowId + '">' + fmt(displayCandidate.strike, 0) + ' CE</span>'
+        + '<span class="strike-otm-pct" id="otmpct_' + rowId + '">+' + fmt(displayCandidate.otm_pct, 1) + '% OTM</span>'
+        + '</div>'
+        + '<button class="btn-icon" id="sup_' + rowId + '" onclick="strikeUp(\'' + row.symbol + '\')"' + upDisabled + ' title="Higher strike">&#8593;</button>'
+        + '<div class="price-input-col">'
+        + '<input class="price-input" type="number" id="price_' + rowId + '" value="' + (displayCandidate.mid_price || 0).toFixed(2) + '" step="0.05"'
+        + ' oninput="onPriceInputChange(\'' + rowId + '\',' + (displayCandidate.lot_size || row.lot_size) + ')" />'
+        + '<span class="prem-per-lot-label" id="pperlot_' + rowId + '">' + initPremPerLot + '/lot</span>'
+        + '</div>'
+        + '<button class="btn btn-success btn-sm" onclick="openModal(\'' + rowId + '\',\'' + row.symbol + '\',' + row.lot_size + ',' + row.eligible_lots + ')">'
+        + '<i class="fas fa-paper-plane"></i> Sell Call</button>'
+        + '</div>';
+
+      // Show bid/ask alongside strike navigator as a separate cell
+      bidAskHtml = '<span id="bidask_' + rowId + '" class="bidask-cell">' + formatBidAsk(displayCandidate.bid, displayCandidate.ask, displayCandidate.mid_price) + '</span>';
+    }
+
+    return '<tr id="row_' + rowId + '" data-symbol="' + row.symbol + '">'
+      + '<td><b>' + row.symbol + '</b></td>'
+      + '<td>' + fmt(row.holding_qty, 0) + '</td>'
+      + '<td>' + fmt(row.lot_size, 0) + '</td>'
+      + '<td>' + row.coverage_pct + '%</td>'
+      + '<td>₹' + fmt(row.ltp, 1) + '</td>'
+      + '<td>₹' + fmt(row.avg_price, 1) + '</td>'
+      + '<td>' + statusBadge(row.status) + '</td>'
+      + '<td>' + strikeHtml + '</td>'
+      + '<td>' + bidAskHtml + '</td>'
+      + '<td>' + expiryHtml + '</td>'
+      + '<td>' + premiumHtml + '</td>'
+      + '<td>' + yieldHtml + '</td>'
+      + '<td>' + actionCell + '</td>'
+      + '</tr>';
+  }
+
+  // ---- Pending Fill table ----
+  function buildPendingTable(rows) {
+    var section = document.getElementById('pendingSection');
+    var tbody   = document.getElementById('pendingTbody');
+    var countEl = document.getElementById('pendingCount');
+    if (!rows || rows.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    if (countEl) countEl.textContent = rows.length;
+    tbody.innerHTML = rows.map(buildPendingRow).join('');
+  }
+
+  function buildPendingRow(row) {
+    var p = row.pending_order || {};
+    var estPremium = (p.limit_price || 0) * (p.quantity || 0);
+    var placedAt = p.placed_at ? p.placed_at.replace('T', ' ').substring(0, 16) : '—';
+    return '<tr>'
+      + '<td><b>' + row.symbol + '</b></td>'
+      + '<td style="font-size:11px;color:#a0aec0">' + (p.tradingsymbol || '—') + '</td>'
+      + '<td>₹' + fmt(p.strike || 0, 0) + '</td>'
+      + '<td>' + (p.expiry ? p.expiry.substring(0, 10) : '—') + '</td>'
+      + '<td>' + (p.lots || '—') + '</td>'
+      + '<td>₹' + fmt(p.limit_price || 0, 2) + '</td>'
+      + '<td class="pnl-pos">' + fmtRs(estPremium) + '</td>'
+      + '<td style="font-size:11px;color:#718096">' + placedAt + '</td>'
+      + '</tr>';
+  }
+
+  // ---- Active Covered Calls table ----
+  function buildActiveTable(rows) {
+    var section = document.getElementById('activeSection');
+    var tbody   = document.getElementById('activeTbody');
+    var countEl = document.getElementById('activeCount');
+    if (!rows || rows.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    if (countEl) countEl.textContent = rows.length;
+    tbody.innerHTML = rows.map(buildActiveRow).join('');
+  }
+
+  function buildActiveRow(row) {
+    var acc = row.active_cc || {};
+    var legs = acc.legs || [];
+    var isMultiLeg = legs.length > 1;
+
+    var expiryStr = (!isMultiLeg && acc.expiry) ? acc.expiry.substring(0, 10) : '—';
+    var daysLeft = '—';
+    if (!isMultiLeg && acc.expiry) {
+      var expMs = new Date(expiryStr).getTime();
+      var todayMs = new Date(new Date().toISOString().substring(0, 10)).getTime();
+      var diff = Math.round((expMs - todayMs) / 86400000);
+      daysLeft = diff >= 0 ? diff + 'd' : '<span class="pnl-neg">' + diff + 'd</span>';
+    }
+    var ccPnl = acc.unrealised_pnl || 0;
+    var hPnl  = row.unrealised_pnl || 0;
+
+    var soldCeCell = isMultiLeg
+      ? '<span style="color:#68d391">' + legs.length + ' legs</span>'
+      : '<span style="font-size:11px;color:#a0aec0">' + (acc.tradingsymbol || '—') + '</span>';
+    var strikeCell  = isMultiLeg ? '—' : '₹' + fmt(acc.strike || 0, 0);
+    var avgSellCell = isMultiLeg
+      ? '₹' + fmt(acc.avg_sell_price || 0, 2) + '<span style="color:#718096;font-size:9px"> wt.avg</span>'
+      : '₹' + fmt(acc.avg_sell_price || 0, 2);
+    var ccLtpCell   = isMultiLeg ? '—' : '₹' + fmt(acc.ltp || 0, 2);
+
+    var mainRow = '<tr>'
+      + '<td><b>' + row.symbol + '</b></td>'
+      + '<td>' + fmt(row.holding_qty, 0) + ' <span style="color:#718096;font-size:10px">(' + fmt(row.lot_size, 0) + '/lot)</span></td>'
+      + '<td>₹' + fmt(row.ltp, 1) + '</td>'
+      + '<td>₹' + fmt(row.avg_price, 1) + '</td>'
+      + '<td class="' + pnlClass(hPnl) + '">' + pnlSign(hPnl) + fmtRs(hPnl) + '</td>'
+      + '<td>' + soldCeCell + '</td>'
+      + '<td>' + strikeCell + '</td>'
+      + '<td>' + expiryStr + '</td>'
+      + '<td>' + daysLeft + '</td>'
+      + '<td class="pnl-pos">' + avgSellCell + '</td>'
+      + '<td>' + ccLtpCell + '</td>'
+      + '<td class="' + pnlClass(ccPnl) + '">' + pnlSign(ccPnl) + fmtRs(ccPnl) + '</td>'
+      + '<td>' + fmt(acc.short_qty || 0, 0) + ' <span style="color:#718096;font-size:10px">(' + fmt(acc.lots_covered || 0, 0) + ' lots)</span></td>'
+      + '</tr>';
+
+    if (!isMultiLeg) return mainRow;
+
+    var legRows = legs.map(function(l) {
+      var lExpiry = l.expiry ? l.expiry.substring(0, 10) : '—';
+      var lPnl = l.unrealised_pnl || 0;
+      return '<tr style="font-size:11px;background:#1a2035">'
+        + '<td style="padding:3px 8px;color:#a0aec0">' + (l.tradingsymbol || '—') + '</td>'
+        + '<td style="padding:3px 8px">₹' + fmt(l.strike || 0, 0) + '</td>'
+        + '<td style="padding:3px 8px">' + lExpiry + '</td>'
+        + '<td style="padding:3px 8px">' + fmt(l.lots || 0, 0) + ' lots</td>'
+        + '<td style="padding:3px 8px">₹' + fmt(l.avg_sell_price || 0, 2) + '</td>'
+        + '<td style="padding:3px 8px">₹' + fmt(l.ltp || 0, 2) + '</td>'
+        + '<td style="padding:3px 8px" class="' + pnlClass(lPnl) + '">' + pnlSign(lPnl) + fmtRs(lPnl) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    var subTable = '<tr>'
+      + '<td colspan="13" style="padding:0 0 8px 32px;border-top:none">'
+      + '<table style="width:auto;font-size:11px;border-collapse:collapse">'
+      + '<thead><tr style="color:#718096">'
+      + '<th style="padding:2px 8px;font-weight:500">Tradingsymbol</th>'
+      + '<th style="padding:2px 8px;font-weight:500">Strike</th>'
+      + '<th style="padding:2px 8px;font-weight:500">Expiry</th>'
+      + '<th style="padding:2px 8px;font-weight:500">Lots</th>'
+      + '<th style="padding:2px 8px;font-weight:500">Sold @</th>'
+      + '<th style="padding:2px 8px;font-weight:500">LTP</th>'
+      + '<th style="padding:2px 8px;font-weight:500">P&amp;L</th>'
+      + '</tr></thead>'
+      + '<tbody>' + legRows + '</tbody>'
+      + '</table>'
+      + '</td>'
+      + '</tr>';
+
+    return mainRow + subTable;
+  }
+
+  // ---- Per-section refresh ----
+  function refreshSection(type) {
+    var btnId = type === 'pending' ? 'pendingRefreshBtn' : 'activeRefreshBtn';
+    var btn   = document.getElementById(btnId);
+    if (btn) btn.classList.add('spinning');
+
+    var url = '/covered_calls/api/status';
+    var expiry = document.getElementById('cfgExpiry') ? document.getElementById('cfgExpiry').value : '';
+    var params = [];
+    if (expiry) params.push('expiry=' + encodeURIComponent(expiry));
+    if (params.length) url += '?' + params.join('&');
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { showToast(data.error, 'error'); return; }
+        var rows = data.rows || [];
+        if (type === 'pending') {
+          buildPendingTable(rows.filter(function(r) { return r.status === 'PENDING_FILL'; }));
+        } else {
+          buildActiveTable(rows.filter(function(r) { return r.status === 'ACTIVE'; }));
+        }
+      })
+      .catch(function(err) { showToast('Refresh failed: ' + err, 'error'); })
+      .finally(function() {
+        if (btn) btn.classList.remove('spinning');
+      });
+  }
+
+  window.openModal = function(rowId, symbol, lotSize, eligibleLots) {
+    var c = getCurrentCandidate(symbol);
+    if (!c) return;
+
+    var priceInput = document.getElementById('price_' + rowId);
+    var limitPrice = priceInput ? (parseFloat(priceInput.value) || c.option_ltp) : c.option_ltp;
+
+    _pendingLotSize = c.lot_size || lotSize;
+    _pendingOrder = {
+      tradingsymbol: c.tradingsymbol,
+      underlying_symbol: symbol,
+      quantity: eligibleLots * _pendingLotSize,
+      limit_price: limitPrice,
+      strike: c.strike || 0,
+      expiry: c.expiry ? c.expiry.substring(0, 10) : null,
+      lots: eligibleLots,
+      lot_size: _pendingLotSize,
+      _lots: eligibleLots,
+      _lot_size: _pendingLotSize,
+    };
+
+    document.getElementById('mSymbol').textContent  = symbol;
+    document.getElementById('mTs').textContent      = c.tradingsymbol;
+    document.getElementById('mStrike').textContent  = '₹' + fmt(c.strike, 0);
+    document.getElementById('mExpiry').textContent  = c.expiry ? c.expiry.substring(0, 10) : '—';
+    document.getElementById('mBidAsk').innerHTML    = (c.bid > 0 || c.ask > 0)
+      ? '<span style="color:#48bb78">B ₹' + fmt(c.bid, 2) + '</span>  <span style="color:#fc8181">A ₹' + fmt(c.ask, 2) + '</span>'
+      : '—';
+
+    var lotsInput = document.getElementById('mLots');
+    lotsInput.value = eligibleLots;
+    lotsInput.max = eligibleLots;  // can't sell more than eligible
+
+    document.getElementById('mLimitPrice').value = limitPrice.toFixed(2);
+    updateModalCalcs();
+
+    document.getElementById('confirmModal').classList.add('open');
+  };
+
+  window.onModalLotsChange = function() {
+    updateModalCalcs();
+  };
+
+  window.onModalPriceChange = function() {
+    updateModalCalcs();
+  };
+
+  function updateModalCalcs() {
+    if (!_pendingOrder) return;
+    var lots = Math.max(1, parseInt(document.getElementById('mLots').value) || 1);
+    var price = parseFloat(document.getElementById('mLimitPrice').value) || 0;
+    var qty = lots * _pendingLotSize;
+
+    document.getElementById('mQty').textContent = qty + ' (' + lots + ' lot' + (lots > 1 ? 's' : '') + ' × ' + _pendingLotSize + ')';
+    document.getElementById('mPremPerLot').textContent = fmtRs(price * _pendingLotSize) + '/lot';
+    document.getElementById('mPremium').textContent = '₹' + (price * qty).toLocaleString('en-IN', {maximumFractionDigits: 0});
+
+    // Update pending order for placement
+    _pendingOrder.quantity = qty;
+    _pendingOrder.limit_price = price;
+  }
+
+  window.closeModal = function() {
+    document.getElementById('confirmModal').classList.remove('open');
+    _pendingOrder = null;
+  };
+
+  window.confirmPlace = function() {
+    if (!_pendingOrder) return;
+    if (_pendingOrder.limit_price <= 0) {
+      showToast('Limit price must be greater than 0', 'error');
+      return;
+    }
+    var btn = document.getElementById('confirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Placing...';
+
+    var payload = {
+      tradingsymbol: _pendingOrder.tradingsymbol,
+      underlying_symbol: _pendingOrder.underlying_symbol,
+      quantity: _pendingOrder.quantity,
+      limit_price: _pendingOrder.limit_price,
+      strike: _pendingOrder.strike,
+      expiry: _pendingOrder.expiry,
+      lots: _pendingOrder.lots,
+      lot_size: _pendingOrder.lot_size,
+    };
+
+    fetch('/covered_calls/api/place', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      closeModal();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-check"></i> Confirm & Place';
+      if (data.ok) {
+        showToast('Order placed — ID: ' + data.order_id + ' · Refreshing…', 'success');
+        // Reload so the row moves to the Pending Fill table (DB was just updated)
+        setTimeout(loadDashboard, 1200);
+      } else {
+        showToast('Error: ' + (data.error || 'Unknown'), 'error');
+      }
+    })
+    .catch(function(err) {
+      closeModal();
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-check"></i> Confirm & Place';
+      showToast('Network error: ' + err.message, 'error');
+    });
+  };
+
+  // ---- Load config ----
+  function loadConfig() {
+    fetch('/covered_calls/api/config')
+      .then(function(r) { return r.json(); })
+      .then(function(cfg) {
+        if (cfg.otm_pct !== undefined)         document.getElementById('cfgOtm').value = cfg.otm_pct;
+        if (cfg.min_premium_per_lot !== undefined) document.getElementById('cfgMinPremium').value = cfg.min_premium_per_lot;
+      })
+      .catch(function() { /* use defaults */ });
+  }
+
+  // ---- Load expiry dropdown ----
+  function loadExpiries() {
+    fetch('/covered_calls/api/expiries')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var sel = document.getElementById('cfgExpiry');
+        if (!Array.isArray(data) || data.length === 0) return;
+        sel.innerHTML = '';
+        // Prepend Auto option (pre-selected); sends no expiry param → server picks recommended
+        var autoOpt = document.createElement('option');
+        autoOpt.value = '';
+        autoOpt.textContent = 'Auto ★';
+        autoOpt.selected = true;
+        sel.appendChild(autoOpt);
+        data.forEach(function(e) {
+          var opt = document.createElement('option');
+          opt.value = e.expiry;
+          opt.textContent = e.label + ' (' + e.working_days + 'd)';
+          sel.appendChild(opt);
+        });
+        // Load dashboard now that expiry is set
+        loadDashboard();
+      })
+      .catch(function() {
+        // Fallback: load without expiry filter
+        loadDashboard();
+      });
+  }
+
+  // ---- Toasts ----
+  function showToast(msg, type) {
+    var container = document.getElementById('toastContainer');
+    var t = document.createElement('div');
+    t.className = 'toast ' + (type || 'success');
+    t.textContent = msg;
+    container.appendChild(t);
+    setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 4000);
+  }
+
+  // ---- Close modal on overlay click ----
+  document.getElementById('confirmModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ---- Init ----
+  loadConfig();
+  loadExpiries();  // populates expiry dropdown, then calls loadDashboard()
+})();
+</script>
+</body>
+</html>

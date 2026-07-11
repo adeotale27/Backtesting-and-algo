@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duplicate Orders Monitor</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    /* Page header */
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .page-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .page-title h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f6ad55;
+    }
+    .page-title .page-icon {
+      font-size: 20px;
+      color: #f6ad55;
+    }
+    .page-subtitle {
+      font-size: 12px;
+      color: #718096;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    /* Status bar */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .status-bar .last-checked {
+      font-size: 12px;
+      color: #718096;
+    }
+    .status-bar .countdown {
+      font-size: 12px;
+      color: #4a5568;
+    }
+    .status-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 12px;
+    }
+    .status-pill.has-duplicates {
+      background: rgba(246,173,85,0.15);
+      color: #f6ad55;
+      border: 1px solid rgba(246,173,85,0.3);
+    }
+    .status-pill.all-clear {
+      background: rgba(72,187,120,0.15);
+      color: #48bb78;
+      border: 1px solid rgba(72,187,120,0.3);
+    }
+
+    /* Refresh button */
+    .btn-refresh {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(99,179,237,0.4);
+      background: rgba(99,179,237,0.08);
+      color: #63b3ed;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn-refresh:hover { background: rgba(99,179,237,0.16); }
+    .btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* All-clear empty state */
+    .all-clear-card {
+      background: rgba(72,187,120,0.06);
+      border: 1px solid rgba(72,187,120,0.2);
+      border-radius: 12px;
+      padding: 48px 32px;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .all-clear-card i {
+      font-size: 40px;
+      color: #48bb78;
+      margin-bottom: 16px;
+    }
+    .all-clear-card .title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #48bb78;
+      margin-bottom: 6px;
+    }
+    .all-clear-card .subtitle {
+      font-size: 13px;
+      color: #718096;
+    }
+
+    /* Error state */
+    .error-card {
+      background: rgba(252,129,129,0.06);
+      border: 1px solid rgba(252,129,129,0.2);
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .error-card i { color: #fc8181; font-size: 28px; margin-bottom: 10px; }
+    .error-card .title { font-size: 14px; font-weight: 700; color: #fc8181; margin-bottom: 4px; }
+    .error-card .detail { font-size: 12px; color: #718096; font-family: monospace; }
+
+    /* Group card */
+    .group-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 14px 18px;
+      background: rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .group-instrument {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .group-instrument .chart-link {
+      color: #3498db;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .group-instrument .chart-link:hover { text-decoration: underline; }
+    .group-instrument .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f6ad55;
+      flex-shrink: 0;
+    }
+    .group-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .badge-buy {
+      background: rgba(72,187,120,0.15);
+      color: #48bb78;
+      border: 1px solid rgba(72,187,120,0.3);
+    }
+    .badge-sell {
+      background: rgba(252,129,129,0.15);
+      color: #fc8181;
+      border: 1px solid rgba(252,129,129,0.3);
+    }
+    .badge-diff {
+      background: rgba(246,173,85,0.12);
+      color: #f6ad55;
+      border: 1px solid rgba(246,173,85,0.25);
+      font-size: 11px;
+    }
+
+    /* Order tiles row */
+    .order-tiles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    /* Single order tile */
+    .order-tile {
+      flex: 1;
+      min-width: 200px;
+      max-width: 280px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.2s;
+    }
+    .order-tile:hover { border-color: rgba(255,255,255,0.15); }
+    .order-tile.cancelled-tile {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    /* Algo badge inside tile */
+    .algo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 8px;
+      align-self: flex-start;
+    }
+    .algo-wave    { background: rgba(99,179,237,0.14); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+    .algo-survivor{ background: rgba(72,187,120,0.14); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); }
+    .algo-manual  { background: rgba(246,173,85,0.14); color: #f6ad55; border: 1px solid rgba(246,173,85,0.3); }
+    .algo-sl      { background: rgba(252,129,129,0.14); color: #fc8181; border: 1px solid rgba(252,129,129,0.3); }
+    .algo-unknown { background: rgba(160,174,192,0.14); color: #a0aec0; border: 1px solid rgba(160,174,192,0.3); }
+
+    .order-price-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .order-price {
+      font-size: 22px;
+      font-weight: 700;
+      color: #e2e8f0;
+    }
+    .order-price-label { font-size: 11px; color: #718096; }
+
+    .order-meta-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .order-meta-line {
+      font-size: 11px;
+      color: #a0aec0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .order-meta-line i { width: 12px; color: #4a5568; }
+    .order-meta-line .value { color: #cbd5e0; }
+
+    .order-status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 6px;
+    }
+    .chip-open     { background: rgba(99,179,237,0.12); color: #63b3ed; }
+    .chip-cancelled{ background: rgba(160,174,192,0.12); color: #a0aec0; }
+    .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+    /* Cancel button */
+    .btn-cancel {
+      width: 100%;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 7px;
+      border: 1px solid rgba(252,129,129,0.35);
+      background: rgba(252,129,129,0.08);
+      color: #fc8181;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+      margin-top: auto;
+    }
+    .btn-cancel:hover { background: rgba(252,129,129,0.16); }
+    .btn-cancel:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Loading spinner inside button */
+    .btn-cancel .fa-spinner { display: none; }
+    .btn-cancel.loading .fa-times { display: none; }
+    .btn-cancel.loading .fa-spinner { display: inline-block; }
+
+    /* Confirmation modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 5000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 14px;
+      padding: 28px 28px 22px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      animation: slideInModal 0.18s ease;
+    }
+    @keyframes slideInModal {
+      from { transform: translateY(-20px); opacity: 0; }
+      to   { transform: translateY(0);     opacity: 1; }
+    }
+    .modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-title i { color: #fc8181; }
+    .modal-body {
+      font-size: 13px;
+      color: #a0aec0;
+      line-height: 1.6;
+      margin-bottom: 22px;
+    }
+    .modal-body strong { color: #e2e8f0; }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .btn-keep {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid #2d3748;
+      background: transparent;
+      color: #a0aec0;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-keep:hover { background: #2d3748; color: #e2e8f0; }
+    .btn-confirm-cancel {
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      background: linear-gradient(135deg, #e53e3e, #c53030);
+      color: white;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-confirm-cancel:hover { opacity: 0.88; }
+    .btn-confirm-cancel:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Toast */
+    #dup-toast {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 6000;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      animation: fadeInToast 0.2s ease;
+    }
+    @keyframes fadeInToast {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    #dup-toast.success { background: rgba(72,187,120,0.92); color: white; }
+    #dup-toast.error   { background: rgba(252,129,129,0.92); color: white; }
+
+    /* Loading skeleton */
+    .loading-state {
+      text-align: center;
+      padding: 48px;
+      color: #4a5568;
+      font-size: 14px;
+    }
+    .loading-state i { font-size: 28px; margin-bottom: 12px; color: #2d3748; }
+  </style>
+</head>
+<body>
+
+{% include '_header_partial.html' %}
+{% include '_notifications_partial.html' %}
+
+<div class="container">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <div class="page-title">
+        <i class="fas fa-exclamation-triangle page-icon"></i>
+        <h1>Duplicate Order Monitor</h1>
+      </div>
+      <div class="page-subtitle">
+        OPEN orders for the same symbol &amp; direction within 2% — placed by different algos.<br>
+        Review and cancel the unwanted order before it fills.
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="dup-status-pill" class="status-pill">Checking...</span>
+      <button class="btn-refresh" id="dup-refresh-btn" onclick="fetchDuplicateOrders(true)">
+        <i class="fas fa-sync-alt" id="dup-refresh-icon"></i> Refresh Now
+      </button>
+    </div>
+  </div>
+
+  <!-- Meta row -->
+  <div style="display:flex; gap:20px; margin-bottom:20px; font-size:12px; color:#718096; flex-wrap:wrap;">
+    <span id="dup-last-checked">Last checked: —</span>
+    <span id="dup-countdown">Auto-refreshes in: <strong id="dup-countdown-val">60</strong>s</span>
+  </div>
+
+  <!-- Main content -->
+  <div id="dup-content">
+    <div class="loading-state">
+      <div><i class="fas fa-spinner fa-spin"></i></div>
+      Loading orders…
+    </div>
+  </div>
+
+</div>
+
+<!-- Confirmation modal -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal-box">
+    <div class="modal-title"><i class="fas fa-times-circle"></i> Cancel Order</div>
+    <div class="modal-body" id="cancel-modal-body">
+      Are you sure you want to cancel this order?
+    </div>
+    <div class="modal-actions">
+      <button class="btn-keep" onclick="closeModal()">Keep Order</button>
+      <button class="btn-confirm-cancel" id="cancel-modal-confirm" onclick="confirmCancel()">
+        <i class="fas fa-times"></i> Cancel Order
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="dup-toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── State ────────────────────────────────────────────────────────────────
+  var _pendingCancel = null;  // {orderId, variety, tileEl}
+  var _countdown = 60;
+  var _countdownTimer = null;
+  var _refreshTimer = null;
+
+  // ── Kite chart segment resolver ─────────────────────────────────────────
+  function _chartSegment(segment, symbol) {
+    if (segment === 'BFO-FUT') return 'BFO-FUT';
+    if (segment && segment.indexOf('BFO') === 0) return 'BFO-OPT';
+    if (symbol && symbol.indexOf('SENSEX') === 0) return 'BFO-OPT';
+    if (segment === 'NFO-FUT') return 'NFO-FUT';
+    return 'NFO-OPT';
+  }
+
+  // ── Algo → CSS class ────────────────────────────────────────────────────
+  function _algoClass(algoName) {
+    var n = (algoName || '').toLowerCase();
+    if (n.indexOf('wave') !== -1 || n.indexOf('scraper') !== -1) return 'algo-wave';
+    if (n.indexOf('survivor') !== -1) return 'algo-survivor';
+    if (n.indexOf('stop loss') !== -1 || n.indexOf('sl') !== -1) return 'algo-sl';
+    if (n.indexOf('manual') !== -1 || n.indexOf('gap') !== -1) return 'algo-manual';
+    return 'algo-unknown';
+  }
+
+  // ── Timestamp formatter ─────────────────────────────────────────────────
+  function _fmtTime(isoStr) {
+    if (!isoStr) return '—';
+    try {
+      var d = new Date(isoStr);
+      return d.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    } catch (e) { return isoStr; }
+  }
+
+  // ── Render a single order tile ──────────────────────────────────────────
+  function _renderTile(order, groupIdx, orderIdx) {
+    var tileId = 'tile-' + groupIdx + '-' + orderIdx;
+    var algoClass = _algoClass(order.algo_name);
+    var statusClass = order.status === 'OPEN' ? 'chip-open' : 'chip-cancelled';
+    var filledInfo = order.filled_quantity > 0
+      ? '<span class="order-meta-line"><i class="fas fa-check-circle"></i><span class="value">' + order.filled_quantity + ' filled</span></span>'
+      : '';
+
+    return (
+      '<div class="order-tile" id="' + tileId + '">' +
+        '<span class="algo-badge ' + algoClass + '">' +
+          '<i class="fas fa-robot"></i> ' + _esc(order.algo_name) +
+        '</span>' +
+
+        '<div class="order-price-row">' +
+          '<span class="order-price">₹' + order.price.toFixed(2) + '</span>' +
+          '<span class="order-price-label">/ unit</span>' +
+        '</div>' +
+
+        '<div class="order-meta-row">' +
+          '<span class="order-meta-line"><i class="fas fa-layer-group"></i><span>Qty: <span class="value">' + order.quantity + '</span></span></span>' +
+          filledInfo +
+          '<span class="order-meta-line"><i class="fas fa-tag"></i><span>Tag: <span class="value">' + _esc(order.tag) + '</span></span></span>' +
+          '<span class="order-meta-line"><i class="fas fa-clock"></i><span class="value">' + _fmtTime(order.placed_at) + ' IST</span></span>' +
+          '<span class="order-meta-line"><i class="fas fa-circle-dot"></i>' +
+            '<span class="order-status-chip ' + statusClass + '"><span class="chip-dot"></span>' + _esc(order.status) + '</span>' +
+          '</span>' +
+        '</div>' +
+
+        '<button class="btn-cancel" ' +
+          'data-order-id="' + _esc(order.order_id) + '" ' +
+          'data-variety="' + _esc(order.variety) + '" ' +
+          'data-tile-id="' + tileId + '" ' +
+          'data-symbol="' + _esc(order.tag) + '" ' +
+          'data-price="' + order.price.toFixed(2) + '" ' +
+          'data-direction="' + _esc(order.status) + '" ' +
+          'onclick="requestCancel(this)">' +
+          '<i class="fas fa-times"></i>' +
+          '<i class="fas fa-spinner fa-spin"></i>' +
+          'Cancel Order' +
+        '</button>' +
+      '</div>'
+    );
+  }
+
+  // ── Render a duplicate group card ───────────────────────────────────────
+  function _renderGroup(group, idx) {
+    var txnClass = group.transaction_type === 'BUY' ? 'badge-buy' : 'badge-sell';
+    var tiles = group.orders.map(function (o, i) { return _renderTile(o, idx, i); }).join('');
+
+    return (
+      '<div class="group-card" id="group-' + idx + '">' +
+        '<div class="group-header">' +
+          '<div class="group-instrument">' +
+            '<span class="dot"></span>' +
+            (group.instrument_token
+              ? '<a href="https://kite.zerodha.com/markets/ext/chart/web/tvc/' +
+                  _chartSegment(group.segment, group.tradingsymbol) + '/' +
+                  encodeURIComponent(group.tradingsymbol) + '/' +
+                  group.instrument_token +
+                  '" target="_blank" class="chart-link">' +
+                  _esc(group.instrument_display) + ' ↗</a>'
+              : _esc(group.instrument_display)) +
+          '</div>' +
+          '<div class="group-meta">' +
+            '<span class="badge ' + txnClass + '">' + _esc(group.transaction_type) + '</span>' +
+            '<span class="badge badge-diff">' +
+              '<i class="fas fa-arrows-left-right"></i> ' + group.max_price_diff_pct.toFixed(1) + '% apart' +
+            '</span>' +
+            '<span class="badge" style="background:rgba(160,174,192,0.1);color:#a0aec0;border:1px solid rgba(160,174,192,0.2)">' +
+              group.order_count + ' orders' +
+            '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="order-tiles">' + tiles + '</div>' +
+      '</div>'
+    );
+  }
+
+  // ── Main render ─────────────────────────────────────────────────────────
+  function _renderContent(data) {
+    var pill = document.getElementById('dup-status-pill');
+    var content = document.getElementById('dup-content');
+
+    if (data.error) {
+      if (pill) { pill.textContent = 'Error'; pill.className = 'status-pill'; }
+      content.innerHTML =
+        '<div class="error-card">' +
+          '<div><i class="fas fa-exclamation-circle"></i></div>' +
+          '<div class="title">Could not fetch orders</div>' +
+          '<div class="detail">' + _esc(data.error) + '</div>' +
+        '</div>';
+      return;
+    }
+
+    var groups = data.groups || [];
+
+    if (groups.length === 0) {
+      if (pill) { pill.textContent = 'All Clear'; pill.className = 'status-pill all-clear'; }
+      content.innerHTML =
+        '<div class="all-clear-card">' +
+          '<div><i class="fas fa-check-circle"></i></div>' +
+          '<div class="title">No duplicate orders detected</div>' +
+          '<div class="subtitle">All OPEN F&amp;O orders are unique. Auto-checks every 5 minutes during market hours.</div>' +
+        '</div>';
+      return;
+    }
+
+    if (pill) {
+      pill.textContent = groups.length + ' group' + (groups.length !== 1 ? 's' : '') + ' found';
+      pill.className = 'status-pill has-duplicates';
+    }
+    content.innerHTML = groups.map(function (g, i) { return _renderGroup(g, i); }).join('');
+  }
+
+  // ── Fetch duplicate orders ───────────────────────────────────────────────
+  window.fetchDuplicateOrders = function (showLoading) {
+    var refreshBtn = document.getElementById('dup-refresh-btn');
+    var refreshIcon = document.getElementById('dup-refresh-icon');
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshIcon) refreshIcon.className = 'fas fa-spinner fa-spin';
+
+    if (showLoading) {
+      var content = document.getElementById('dup-content');
+      if (content) {
+        content.innerHTML = '<div class="loading-state"><div><i class="fas fa-spinner fa-spin"></i></div>Fetching orders…</div>';
+      }
+    }
+
+    fetch('/api/duplicate-orders')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        _renderContent(data);
+
+        var lastChecked = document.getElementById('dup-last-checked');
+        if (lastChecked && data.checked_at) {
+          var d = new Date(data.checked_at);
+          lastChecked.textContent = 'Last checked: ' + d.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' IST';
+        }
+      })
+      .catch(function (err) {
+        _renderContent({error: 'Network error — ' + err.message});
+      })
+      .finally(function () {
+        if (refreshBtn) refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.className = 'fas fa-sync-alt';
+        _resetCountdown();
+      });
+  };
+
+  // ── Countdown ────────────────────────────────────────────────────────────
+  function _resetCountdown() {
+    _countdown = 60;
+    _updateCountdownDisplay();
+  }
+
+  function _updateCountdownDisplay() {
+    var el = document.getElementById('dup-countdown-val');
+    if (el) el.textContent = _countdown;
+  }
+
+  function _startCountdown() {
+    if (_countdownTimer) clearInterval(_countdownTimer);
+    _countdownTimer = setInterval(function () {
+      _countdown--;
+      _updateCountdownDisplay();
+      if (_countdown <= 0) {
+        fetchDuplicateOrders(false);
+      }
+    }, 1000);
+  }
+
+  // ── Cancel flow ──────────────────────────────────────────────────────────
+  window.requestCancel = function (btn) {
+    var orderId = btn.getAttribute('data-order-id');
+    var variety = btn.getAttribute('data-variety');
+    var tileId  = btn.getAttribute('data-tile-id');
+    var price   = btn.getAttribute('data-price');
+
+    // Find algo name from within the tile
+    var tile = document.getElementById(tileId);
+    var algoEl = tile ? tile.querySelector('.algo-badge') : null;
+    var algoName = algoEl ? algoEl.textContent.trim() : 'Unknown';
+    // Find group's transaction type (BUY / SELL)
+    var groupCard = tile ? tile.closest('.group-card') : null;
+    var txnEl = groupCard ? groupCard.querySelector('.badge-buy, .badge-sell') : null;
+    var txn = txnEl ? txnEl.textContent.trim() : '';
+    // Find instrument display from group header
+    var instrEl = groupCard ? groupCard.querySelector('.group-instrument') : null;
+    var instrText = instrEl ? instrEl.textContent.replace(/\s+/g, ' ').trim() : '';
+
+    _pendingCancel = {orderId: orderId, variety: variety, tileId: tileId};
+
+    var bodyEl = document.getElementById('cancel-modal-body');
+    if (bodyEl) {
+      bodyEl.innerHTML =
+        'Cancel the <strong>' + txn + '</strong> order for ' +
+        '<strong>' + _esc(instrText) + '</strong> ' +
+        'at <strong>₹' + price + '</strong> ' +
+        'placed by <strong>' + _esc(algoName) + '</strong>?<br><br>' +
+        '<span style="color:#fc8181;font-size:12px;">This action cannot be undone.</span>';
+    }
+
+    var modal = document.getElementById('cancel-modal');
+    if (modal) modal.classList.add('open');
+  };
+
+  window.closeModal = function () {
+    var modal = document.getElementById('cancel-modal');
+    if (modal) modal.classList.remove('open');
+    _pendingCancel = null;
+  };
+
+  window.confirmCancel = function () {
+    if (!_pendingCancel) return;
+    var confirmBtn = document.getElementById('cancel-modal-confirm');
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    var orderId  = _pendingCancel.orderId;
+    var variety  = _pendingCancel.variety;
+    var tileId   = _pendingCancel.tileId;
+
+    // Mark tile button as loading
+    var tile = document.getElementById(tileId);
+    var cancelBtn = tile ? tile.querySelector('.btn-cancel') : null;
+    if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.classList.add('loading'); }
+
+    closeModal();
+
+    fetch('/api/cancel-duplicate-order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({order_id: orderId, variety: variety}),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.success) {
+          _showToast('Order cancelled successfully', 'success');
+          if (tile) {
+            tile.classList.add('cancelled-tile');
+            // Replace cancel button with "Cancelled" chip
+            if (cancelBtn) {
+              cancelBtn.outerHTML =
+                '<div class="order-status-chip chip-cancelled" style="align-self:center;font-size:11px;padding:5px 10px;">' +
+                '<span class="chip-dot"></span>Cancelled</div>';
+            }
+            // Update status chip inside the tile
+            var statusEl = tile.querySelector('.order-status-chip');
+            if (statusEl) {
+              statusEl.className = 'order-status-chip chip-cancelled';
+              statusEl.innerHTML = '<span class="chip-dot"></span>CANCELLED';
+            }
+          }
+          // If group now has ≤1 active tiles, collapse it
+          _collapseGroupIfResolved(tile);
+        } else {
+          _showToast(data.message || 'Cancel failed', 'error');
+          if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.classList.remove('loading'); }
+        }
+        if (confirmBtn) confirmBtn.disabled = false;
+      })
+      .catch(function (err) {
+        _showToast('Network error: ' + err.message, 'error');
+        if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.classList.remove('loading'); }
+        if (confirmBtn) confirmBtn.disabled = false;
+      });
+  };
+
+  function _collapseGroupIfResolved(tile) {
+    if (!tile) return;
+    var groupCard = tile.closest('.group-card');
+    if (!groupCard) return;
+    var allTiles = groupCard.querySelectorAll('.order-tile');
+    var activeTiles = Array.prototype.filter.call(allTiles, function (t) {
+      return !t.classList.contains('cancelled-tile');
+    });
+    if (activeTiles.length <= 1) {
+      // Fade out the group card after a short delay so user sees the "Cancelled" state
+      setTimeout(function () {
+        groupCard.style.transition = 'opacity 0.4s';
+        groupCard.style.opacity = '0';
+        setTimeout(function () {
+          if (groupCard.parentNode) groupCard.parentNode.removeChild(groupCard);
+          // Check if content area is now empty
+          var content = document.getElementById('dup-content');
+          if (content && !content.querySelector('.group-card')) {
+            _renderContent({groups: [], checked_at: new Date().toISOString()});
+          }
+        }, 420);
+      }, 1200);
+    }
+  }
+
+  // ── Toast helper ─────────────────────────────────────────────────────────
+  var _toastTimer = null;
+  function _showToast(msg, type) {
+    var toast = document.getElementById('dup-toast');
+    if (!toast) return;
+    if (_toastTimer) clearTimeout(_toastTimer);
+    toast.textContent = msg;
+    toast.className = type;
+    toast.style.display = 'block';
+    _toastTimer = setTimeout(function () { toast.style.display = 'none'; }, 4000);
+  }
+
+  // ── Escape helper ────────────────────────────────────────────────────────
+  function _esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Close modal on overlay click ─────────────────────────────────────────
+  document.getElementById('cancel-modal').addEventListener('click', function (e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ── Bootstrap ────────────────────────────────────────────────────────────
+  fetchDuplicateOrders(true);
+  _startCountdown();
+
+})();
+</script>
+
+</body>
+</html>

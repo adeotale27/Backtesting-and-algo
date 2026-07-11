@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Position Guard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .page-title { display: flex; align-items: center; gap: 10px; }
+    .page-title h1 { font-size: 20px; font-weight: 700; color: #f6ad55; }
+    .page-title .page-icon { font-size: 20px; color: #f6ad55; }
+    .page-subtitle { font-size: 12px; color: #718096; margin-top: 4px; line-height: 1.5; }
+
+    .status-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .status-pill {
+      font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+      background: rgba(246,173,85,0.15); color: #f6ad55; border: 1px solid rgba(246,173,85,0.3);
+    }
+    .status-pill.all-clear {
+      background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3);
+    }
+    .btn-refresh {
+      font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px;
+      border: 1px solid rgba(99,179,237,0.4); background: rgba(99,179,237,0.08); color: #63b3ed;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s;
+    }
+    .btn-refresh:hover { background: rgba(99,179,237,0.16); }
+    .btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .meta-row { display:flex; gap:20px; margin-bottom:20px; font-size:12px; color:#718096; flex-wrap:wrap; }
+
+    .section-title {
+      font-size: 13px; font-weight: 700; color: #a0aec0; text-transform: uppercase;
+      letter-spacing: 0.05em; margin: 28px 0 12px;
+    }
+
+    .all-clear-card, .error-card {
+      border-radius: 12px; padding: 40px 32px; text-align: center; margin-top: 8px;
+    }
+    .all-clear-card { background: rgba(72,187,120,0.06); border: 1px solid rgba(72,187,120,0.2); }
+    .all-clear-card i { font-size: 36px; color: #48bb78; margin-bottom: 14px; }
+    .all-clear-card .title { font-size: 15px; font-weight: 700; color: #48bb78; margin-bottom: 6px; }
+    .all-clear-card .subtitle { font-size: 13px; color: #718096; }
+    .error-card { background: rgba(252,129,129,0.06); border: 1px solid rgba(252,129,129,0.2); }
+    .error-card i { color: #fc8181; font-size: 26px; margin-bottom: 10px; }
+    .error-card .title { font-size: 14px; font-weight: 700; color: #fc8181; margin-bottom: 4px; }
+    .error-card .detail { font-size: 12px; color: #718096; font-family: monospace; }
+
+    .empty-note { font-size: 12px; color: #4a5568; padding: 12px 4px; }
+
+    /* Symbol row card */
+    .symbol-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .symbol-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px; padding: 14px 18px;
+      background: rgba(255,255,255,0.04); cursor: pointer;
+    }
+    .symbol-title { font-size: 15px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 8px; }
+    .chart-link { color: #3498db; text-decoration: none; font-weight: 700; }
+    .chart-link:hover { text-decoration: underline; }
+    .symbol-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    .badge {
+      font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .badge-qty { background: rgba(99,179,237,0.14); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+    .badge-sources { background: rgba(246,173,85,0.14); color: #f6ad55; border: 1px solid rgba(246,173,85,0.3); }
+
+    .collapse-icon { transition: transform 0.15s; color: #718096; }
+    .symbol-card.collapsed .collapse-icon { transform: rotate(-90deg); }
+    .symbol-card.collapsed .symbol-body { display: none; }
+
+    .btn-ignore, .btn-remove {
+      font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 7px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .btn-ignore {
+      border: 1px solid rgba(160,174,192,0.35); background: rgba(160,174,192,0.08); color: #a0aec0;
+    }
+    .btn-ignore:hover { background: rgba(160,174,192,0.16); }
+    .btn-remove {
+      border: 1px solid rgba(72,187,120,0.35); background: rgba(72,187,120,0.08); color: #48bb78;
+    }
+    .btn-remove:hover { background: rgba(72,187,120,0.16); }
+
+    .symbol-body { padding: 4px 18px 16px; }
+    .source-group-title {
+      font-size: 11px; font-weight: 700; color: #718096; text-transform: uppercase;
+      letter-spacing: 0.05em; margin: 12px 0 8px;
+    }
+
+    .source-row {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      gap: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 9px; padding: 10px 14px; margin-bottom: 8px;
+    }
+    .source-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #cbd5e0; }
+    .source-info .value { color: #e2e8f0; font-weight: 600; }
+    .algo-badge {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700;
+      padding: 3px 8px; border-radius: 8px;
+    }
+    .algo-wave    { background: rgba(99,179,237,0.14); color: #63b3ed; border: 1px solid rgba(99,179,237,0.3); }
+    .algo-survivor{ background: rgba(72,187,120,0.14); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); }
+    .algo-manual  { background: rgba(246,173,85,0.14); color: #f6ad55; border: 1px solid rgba(246,173,85,0.3); }
+    .algo-unknown { background: rgba(160,174,192,0.14); color: #a0aec0; border: 1px solid rgba(160,174,192,0.3); }
+
+    .source-actions { display: flex; gap: 6px; }
+    .btn-mini {
+      font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+      border: 1px solid rgba(99,179,237,0.35); background: rgba(99,179,237,0.08); color: #63b3ed;
+    }
+    .btn-mini:hover { background: rgba(99,179,237,0.16); }
+    .btn-mini.danger {
+      border-color: rgba(252,129,129,0.35); background: rgba(252,129,129,0.08); color: #fc8181;
+    }
+    .btn-mini.danger:hover { background: rgba(252,129,129,0.16); }
+    .btn-mini:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .edit-form {
+      display: none; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding-top: 8px;
+      border-top: 1px dashed rgba(255,255,255,0.1); width: 100%;
+    }
+    .edit-form.open { display: flex; }
+    .edit-form input {
+      width: 110px; padding: 6px 8px; font-size: 12px; border-radius: 6px;
+      border: 1px solid #2d3748; background: #1a1f2e; color: #e2e8f0;
+    }
+    .edit-form label { font-size: 10px; color: #718096; display: block; margin-bottom: 2px; }
+    .edit-field { display: flex; flex-direction: column; }
+
+    .position-row {
+      background: rgba(72,187,120,0.05); border: 1px solid rgba(72,187,120,0.15);
+      border-radius: 9px; padding: 10px 14px; margin-bottom: 8px; font-size: 12px; color: #cbd5e0;
+    }
+
+    /* Ignored table */
+    .ignored-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .ignored-table th {
+      text-align: left; padding: 8px 12px; color: #718096; font-weight: 700;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .ignored-table td {
+      padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #cbd5e0;
+    }
+
+    /* Confirmation modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+      z-index: 5000; align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #1a1f2e; border: 1px solid #2d3748; border-radius: 14px;
+      padding: 28px 28px 22px; max-width: 400px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .modal-title { font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .modal-title i { color: #fc8181; }
+    .modal-body { font-size: 13px; color: #a0aec0; line-height: 1.6; margin-bottom: 22px; }
+    .modal-body strong { color: #e2e8f0; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .btn-keep {
+      padding: 8px 18px; font-size: 13px; font-weight: 600; border-radius: 8px;
+      border: 1px solid #2d3748; background: transparent; color: #a0aec0; cursor: pointer;
+    }
+    .btn-keep:hover { background: #2d3748; color: #e2e8f0; }
+    .btn-confirm-danger {
+      padding: 8px 18px; font-size: 13px; font-weight: 600; border-radius: 8px; border: none;
+      background: linear-gradient(135deg, #e53e3e, #c53030); color: white; cursor: pointer;
+    }
+    .btn-confirm-danger:hover { opacity: 0.88; }
+    .btn-confirm-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #pg-toast {
+      display: none; position: fixed; bottom: 24px; right: 24px; z-index: 6000;
+      padding: 12px 18px; border-radius: 10px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    #pg-toast.success { background: rgba(72,187,120,0.92); color: white; }
+    #pg-toast.error   { background: rgba(252,129,129,0.92); color: white; }
+
+    .loading-state { text-align: center; padding: 48px; color: #4a5568; font-size: 14px; }
+    .loading-state i { font-size: 28px; margin-bottom: 12px; color: #2d3748; }
+  </style>
+</head>
+<body>
+
+{% include '_header_partial.html' %}
+{% include '_notifications_partial.html' %}
+
+<div class="container">
+
+  <div class="page-header">
+    <div>
+      <div class="page-title">
+        <i class="fas fa-shield-halved page-icon"></i>
+        <h1>Position Guard</h1>
+      </div>
+      <div class="page-subtitle">
+        Options only (CE/PE) — symbols whose projected net position (existing position + OPEN regular
+        BUY orders + pending GTT BUY orders) would be long.<br>
+        Review each and ignore it once you've confirmed it's intentional.
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="pg-status-pill" class="status-pill">Checking...</span>
+      <button class="btn-refresh" id="pg-refresh-btn" onclick="fetchPositionGuard(true)">
+        <i class="fas fa-sync-alt" id="pg-refresh-icon"></i> Refresh Now
+      </button>
+    </div>
+  </div>
+
+  <div class="meta-row">
+    <span id="pg-last-checked">Last checked: —</span>
+    <span>Auto-refreshes in: <strong id="pg-countdown-val">300</strong>s</span>
+  </div>
+
+  <div id="pg-content">
+    <div class="loading-state">
+      <div><i class="fas fa-spinner fa-spin"></i></div>
+      Loading…
+    </div>
+  </div>
+
+  <div class="section-title">Currently Ignored</div>
+  <div id="pg-ignored-content">
+    <div class="empty-note">Nothing ignored yet.</div>
+  </div>
+
+</div>
+
+<!-- Confirmation modal (cancel order / delete GTT) -->
+<div class="modal-overlay" id="pg-confirm-modal">
+  <div class="modal-box">
+    <div class="modal-title"><i class="fas fa-triangle-exclamation"></i> <span id="pg-confirm-title">Confirm</span></div>
+    <div class="modal-body" id="pg-confirm-body">Are you sure?</div>
+    <div class="modal-actions">
+      <button class="btn-keep" onclick="pgCloseModal()">Cancel</button>
+      <button class="btn-confirm-danger" id="pg-confirm-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="pg-toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var _countdown = 300;
+  var _countdownTimer = null;
+  var _confirmAction = null; // function to call on confirm
+
+  function _esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function _chartSegment(exchange, symbol) {
+    if (exchange === 'BFO' && /FUT$/.test(symbol)) return 'BFO-FUT';
+    if (exchange === 'BFO') return 'BFO-OPT';
+    if (/FUT$/.test(symbol)) return 'NFO-FUT';
+    return 'NFO-OPT';
+  }
+
+  function _chartLink(symbol, token, exchange) {
+    if (!token) return _esc(symbol);
+    var seg = _chartSegment(exchange, symbol);
+    return '<a href="https://kite.zerodha.com/markets/ext/chart/web/tvc/' + seg + '/' +
+      encodeURIComponent(symbol) + '/' + _esc(token) + '" target="_blank" class="chart-link">' +
+      _esc(symbol) + ' <i class="fas fa-arrow-up-right-from-square" style="font-size:.65rem;"></i></a>';
+  }
+
+  function _algoClass(name) {
+    var n = (name || '').toLowerCase();
+    if (n.indexOf('wave') !== -1 || n.indexOf('scraper') !== -1) return 'algo-wave';
+    if (n.indexOf('survivor') !== -1) return 'algo-survivor';
+    if (n.indexOf('manual') !== -1) return 'algo-manual';
+    return 'algo-unknown';
+  }
+
+  function toggleSymbol(el) {
+    el.closest('.symbol-card').classList.toggle('collapsed');
+  }
+  window.toggleSymbol = toggleSymbol;
+
+  function toggleEditForm(btn, formId) {
+    var form = document.getElementById(formId);
+    if (form) form.classList.toggle('open');
+  }
+  window.toggleEditForm = toggleEditForm;
+
+  // ── Render a single regular order row ──────────────────────────────────
+  function _renderOrderRow(order, symbol) {
+    var formId = 'edit-order-' + order.order_id;
+    return (
+      '<div class="source-row">' +
+        '<div class="source-info">' +
+          '<span class="algo-badge ' + _algoClass(order.algo_name) + '"><i class="fas fa-robot"></i> ' + _esc(order.algo_name) + '</span>' +
+          '<span>Regular Order</span>' +
+          '<span>Qty: <span class="value">' + order.quantity + '</span></span>' +
+          '<span>Price: <span class="value">₹' + order.price.toFixed(2) + '</span></span>' +
+          '<span>Product: <span class="value">' + _esc(order.product) + '</span></span>' +
+        '</div>' +
+        '<div class="source-actions">' +
+          '<button class="btn-mini" onclick="toggleEditForm(this,\'' + formId + '\')"><i class="fas fa-pen"></i> Edit</button>' +
+          '<button class="btn-mini danger" onclick="pgRequestCancelOrder(\'' + _esc(order.order_id) + '\',\'' + _esc(order.variety) + '\',\'' + _esc(symbol) + '\')">' +
+            '<i class="fas fa-xmark"></i> Close</button>' +
+        '</div>' +
+        '<div class="edit-form" id="' + formId + '">' +
+          '<div class="edit-field"><label>Quantity</label><input type="number" id="' + formId + '-qty" value="' + order.quantity + '"></div>' +
+          '<div class="edit-field"><label>Price</label><input type="number" step="0.05" id="' + formId + '-price" value="' + order.price.toFixed(2) + '"></div>' +
+          '<button class="btn-mini" style="align-self:flex-end;" onclick="pgSaveOrderEdit(\'' + _esc(order.order_id) + '\',\'' + _esc(order.variety) + '\',\'' + formId + '\')">' +
+            '<i class="fas fa-check"></i> Save</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ── Render a single GTT row ─────────────────────────────────────────────
+  function _renderGttRow(gtt, symbol, exchange) {
+    var formId = 'edit-gtt-' + gtt.trigger_id;
+    var buyChild = (gtt.child_orders || []).filter(function (o) { return o.transaction_type === 'BUY'; })[0] || {};
+    var triggerVal = (gtt.trigger_values || [])[0] || 0;
+    return (
+      '<div class="source-row">' +
+        '<div class="source-info">' +
+          '<span class="algo-badge ' + _algoClass(gtt.algo_name) + '"><i class="fas fa-robot"></i> ' + _esc(gtt.algo_name) + '</span>' +
+          '<span>GTT</span>' +
+          '<span>Qty: <span class="value">' + gtt.buy_quantity + '</span></span>' +
+          '<span>Trigger: <span class="value">₹' + Number(triggerVal).toFixed(2) + '</span></span>' +
+          '<span>Limit: <span class="value">₹' + Number(buyChild.price || 0).toFixed(2) + '</span></span>' +
+        '</div>' +
+        '<div class="source-actions">' +
+          '<button class="btn-mini" onclick="toggleEditForm(this,\'' + formId + '\')"><i class="fas fa-pen"></i> Edit</button>' +
+          '<button class="btn-mini danger" onclick="pgRequestDeleteGtt(' + gtt.trigger_id + ',\'' + _esc(symbol) + '\')">' +
+            '<i class="fas fa-xmark"></i> Close</button>' +
+        '</div>' +
+        '<div class="edit-form" id="' + formId + '">' +
+          '<div class="edit-field"><label>Quantity</label><input type="number" id="' + formId + '-qty" value="' + gtt.buy_quantity + '"></div>' +
+          '<div class="edit-field"><label>Trigger Price</label><input type="number" step="0.05" id="' + formId + '-trigger" value="' + Number(triggerVal).toFixed(2) + '"></div>' +
+          '<div class="edit-field"><label>Limit Price</label><input type="number" step="0.05" id="' + formId + '-limit" value="' + Number(buyChild.price || 0).toFixed(2) + '"></div>' +
+          '<div class="edit-field"><label>Last Price (LTP)</label><input type="number" step="0.05" id="' + formId + '-ltp" value=""></div>' +
+          '<button class="btn-mini" style="align-self:flex-end;" onclick="pgSaveGttEdit(' + gtt.trigger_id + ',\'' + _esc(symbol) + '\',\'' + _esc(exchange) + '\',\'' + formId + '\')">' +
+            '<i class="fas fa-check"></i> Save</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  // ── Render a symbol card ────────────────────────────────────────────────
+  function _renderSymbolCard(row, idx) {
+    var orderRows = row.regular_orders.map(function (o) { return _renderOrderRow(o, row.tradingsymbol); }).join('');
+    var gttRows = row.gtts.map(function (g) { return _renderGttRow(g, row.tradingsymbol, row.exchange); }).join('');
+    var positionRow = row.position_qty > 0
+      ? '<div class="position-row"><i class="fas fa-layer-group"></i> Existing net-long position: <strong>' + row.position_qty + '</strong> qty</div>'
+      : '';
+
+    return (
+      '<div class="symbol-card" id="pg-symbol-' + idx + '">' +
+        '<div class="symbol-header" onclick="toggleSymbol(this)">' +
+          '<div class="symbol-title">' +
+            '<i class="fas fa-chevron-down collapse-icon"></i>' +
+            _chartLink(row.tradingsymbol, row.instrument_token, row.exchange) +
+          '</div>' +
+          '<div class="symbol-meta">' +
+            '<span class="badge badge-qty">Total Qty: ' + row.total_long_qty + '</span>' +
+            '<span class="badge badge-sources">' + row.source_count + ' source' + (row.source_count !== 1 ? 's' : '') + '</span>' +
+            '<button class="btn-ignore" onclick="event.stopPropagation(); pgIgnoreSymbol(\'' + _esc(row.tradingsymbol) + '\',\'' + _esc(row.exchange) + '\',\'' + _esc(row.fingerprint) + '\')">' +
+              '<i class="fas fa-eye-slash"></i> Ignore</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="symbol-body">' +
+          positionRow +
+          (orderRows ? '<div class="source-group-title">Regular Orders</div>' + orderRows : '') +
+          (gttRows ? '<div class="source-group-title">GTT Orders</div>' + gttRows : '') +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function _renderIgnoredTable(ignored) {
+    var container = document.getElementById('pg-ignored-content');
+    if (!ignored || ignored.length === 0) {
+      container.innerHTML = '<div class="empty-note">Nothing ignored yet.</div>';
+      return;
+    }
+    var rowsHtml = ignored.map(function (r) {
+      return (
+        '<tr>' +
+          '<td>' + _esc(r.tradingsymbol) + '</td>' +
+          '<td>' + _esc(r.exchange) + '</td>' +
+          '<td>' + _esc(r.ignored_at) + '</td>' +
+          '<td><button class="btn-remove" onclick="pgUnignoreSymbol(\'' + _esc(r.tradingsymbol) + '\',\'' + _esc(r.exchange) + '\')">' +
+            '<i class="fas fa-rotate-left"></i> Remove</button></td>' +
+        '</tr>'
+      );
+    }).join('');
+    container.innerHTML =
+      '<table class="ignored-table"><thead><tr><th>Symbol</th><th>Exchange</th><th>Ignored At</th><th></th></tr></thead>' +
+      '<tbody>' + rowsHtml + '</tbody></table>';
+  }
+
+  function _renderContent(data) {
+    var pill = document.getElementById('pg-status-pill');
+    var content = document.getElementById('pg-content');
+
+    if (data.error) {
+      pill.textContent = 'Error'; pill.className = 'status-pill';
+      content.innerHTML =
+        '<div class="error-card"><div><i class="fas fa-exclamation-circle"></i></div>' +
+        '<div class="title">Could not fetch data</div><div class="detail">' + _esc(data.error) + '</div></div>';
+      return;
+    }
+
+    var rows = data.rows || [];
+    _renderIgnoredTable(data.ignored);
+
+    if (rows.length === 0) {
+      pill.textContent = 'All Clear'; pill.className = 'status-pill all-clear';
+      content.innerHTML =
+        '<div class="all-clear-card"><div><i class="fas fa-check-circle"></i></div>' +
+        '<div class="title">No unreviewed long exposure</div>' +
+        '<div class="subtitle">Every symbol with BUY-side exposure has been ignored or there is none.</div></div>';
+      return;
+    }
+
+    pill.textContent = rows.length + ' symbol' + (rows.length !== 1 ? 's' : '');
+    pill.className = 'status-pill';
+    content.innerHTML = rows.map(function (r, i) { return _renderSymbolCard(r, i); }).join('');
+  }
+
+  window.fetchPositionGuard = function (showLoading) {
+    var refreshBtn = document.getElementById('pg-refresh-btn');
+    var refreshIcon = document.getElementById('pg-refresh-icon');
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshIcon) refreshIcon.className = 'fas fa-spinner fa-spin';
+
+    if (showLoading) {
+      document.getElementById('pg-content').innerHTML =
+        '<div class="loading-state"><div><i class="fas fa-spinner fa-spin"></i></div>Fetching…</div>';
+    }
+
+    fetch('/position-guard/api/data')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        _renderContent(data);
+        var lastChecked = document.getElementById('pg-last-checked');
+        if (data.checked_at) {
+          var d = new Date(data.checked_at);
+          lastChecked.textContent = 'Last checked: ' + d.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'}) + ' IST';
+        }
+      })
+      .catch(function (err) { _renderContent({error: 'Network error — ' + err.message}); })
+      .finally(function () {
+        if (refreshBtn) refreshBtn.disabled = false;
+        if (refreshIcon) refreshIcon.className = 'fas fa-sync-alt';
+        _resetCountdown();
+      });
+  };
+
+  function _resetCountdown() {
+    _countdown = 300;
+    document.getElementById('pg-countdown-val').textContent = _countdown;
+  }
+  function _startCountdown() {
+    if (_countdownTimer) clearInterval(_countdownTimer);
+    _countdownTimer = setInterval(function () {
+      _countdown--;
+      document.getElementById('pg-countdown-val').textContent = _countdown;
+      if (_countdown <= 0) fetchPositionGuard(false);
+    }, 1000);
+  }
+
+  var _toastTimer = null;
+  function _showToast(msg, type) {
+    var toast = document.getElementById('pg-toast');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    toast.textContent = msg;
+    toast.className = type;
+    toast.style.display = 'block';
+    _toastTimer = setTimeout(function () { toast.style.display = 'none'; }, 4000);
+  }
+
+  function _openConfirm(title, bodyHtml, onConfirm) {
+    document.getElementById('pg-confirm-title').textContent = title;
+    document.getElementById('pg-confirm-body').innerHTML = bodyHtml;
+    _confirmAction = onConfirm;
+    document.getElementById('pg-confirm-modal').classList.add('open');
+  }
+  window.pgCloseModal = function () {
+    document.getElementById('pg-confirm-modal').classList.remove('open');
+    _confirmAction = null;
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    var confirmBtn = document.getElementById('pg-confirm-btn');
+    confirmBtn.addEventListener('click', function () {
+      if (_confirmAction) {
+        confirmBtn.disabled = true;
+        _confirmAction(function () { confirmBtn.disabled = false; });
+      }
+    });
+    document.getElementById('pg-confirm-modal').addEventListener('click', function (e) {
+      if (e.target === this) pgCloseModal();
+    });
+  });
+
+  // ── Ignore / Un-ignore ──────────────────────────────────────────────────
+  window.pgIgnoreSymbol = function (symbol, exchange, fingerprint) {
+    fetch('/position-guard/api/ignore', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tradingsymbol: symbol, exchange: exchange, fingerprint: fingerprint}),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) { _showToast('Ignored ' + symbol, 'success'); fetchPositionGuard(false); }
+      else { _showToast(data.error || 'Failed to ignore', 'error'); }
+    }).catch(function (err) { _showToast('Network error: ' + err.message, 'error'); });
+  };
+
+  window.pgUnignoreSymbol = function (symbol, exchange) {
+    fetch('/position-guard/api/unignore', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tradingsymbol: symbol, exchange: exchange}),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) { _showToast('Removed from ignore list', 'success'); fetchPositionGuard(false); }
+      else { _showToast(data.error || 'Failed to remove', 'error'); }
+    }).catch(function (err) { _showToast('Network error: ' + err.message, 'error'); });
+  };
+
+  // ── Regular order actions ───────────────────────────────────────────────
+  window.pgRequestCancelOrder = function (orderId, variety, symbol) {
+    _openConfirm('Close Order', 'Cancel the regular order for <strong>' + _esc(symbol) + '</strong>?', function (done) {
+      fetch('/position-guard/api/orders/' + encodeURIComponent(orderId) + '/cancel', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({variety: variety}),
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        pgCloseModal(); done();
+        if (data.ok) { _showToast('Order cancelled', 'success'); fetchPositionGuard(false); }
+        else { _showToast(data.error || 'Cancel failed', 'error'); }
+      }).catch(function (err) { pgCloseModal(); done(); _showToast('Network error: ' + err.message, 'error'); });
+    });
+  };
+
+  window.pgSaveOrderEdit = function (orderId, variety, formId) {
+    var qty = document.getElementById(formId + '-qty').value;
+    var price = document.getElementById(formId + '-price').value;
+    fetch('/position-guard/api/orders/' + encodeURIComponent(orderId) + '/modify', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({variety: variety, quantity: qty, price: price}),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) { _showToast('Order updated', 'success'); fetchPositionGuard(false); }
+      else { _showToast(data.error || 'Update failed', 'error'); }
+    }).catch(function (err) { _showToast('Network error: ' + err.message, 'error'); });
+  };
+
+  // ── GTT actions ──────────────────────────────────────────────────────────
+  window.pgRequestDeleteGtt = function (triggerId, symbol) {
+    _openConfirm('Delete GTT', 'Delete the GTT for <strong>' + _esc(symbol) + '</strong>?', function (done) {
+      fetch('/position-guard/api/gtts/' + triggerId + '/delete', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        pgCloseModal(); done();
+        if (data.ok) { _showToast('GTT deleted', 'success'); fetchPositionGuard(false); }
+        else { _showToast(data.error || 'Delete failed', 'error'); }
+      }).catch(function (err) { pgCloseModal(); done(); _showToast('Network error: ' + err.message, 'error'); });
+    });
+  };
+
+  window.pgSaveGttEdit = function (triggerId, symbol, exchange, formId) {
+    var qty = document.getElementById(formId + '-qty').value;
+    var trigger = document.getElementById(formId + '-trigger').value;
+    var limit = document.getElementById(formId + '-limit').value;
+    var ltp = document.getElementById(formId + '-ltp').value;
+    if (!ltp || Number(ltp) <= 0) {
+      _showToast('Last Price (LTP) is required by Zerodha to modify a GTT', 'error');
+      return;
+    }
+    fetch('/position-guard/api/gtts/' + triggerId + '/modify', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        tradingsymbol: symbol, exchange: exchange, transaction_type: 'BUY', product: 'NRML',
+        quantity: qty, trigger_price: trigger, limit_price: limit, last_price: ltp,
+      }),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) { _showToast('GTT updated', 'success'); fetchPositionGuard(false); }
+      else { _showToast(data.error || 'Update failed', 'error'); }
+    }).catch(function (err) { _showToast('Network error: ' + err.message, 'error'); });
+  };
+
+  // ── Bootstrap ────────────────────────────────────────────────────────────
+  fetchPositionGuard(true);
+  _startCountdown();
+
+})();
+</script>
+
+</body>
+</html>

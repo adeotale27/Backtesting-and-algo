@@ -1,0 +1,41 @@
+# --- secrets & runtime state: NEVER commit these ---
+configfile.ini
+.flask_secret
+.kite_session_token*
+*.pem
+*.key
+*.env
+
+# databases & caches
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
+instruments.db*
+trade_journal.db*
+api_monitor.db*
+
+# logs & order state
+*.log
+logs/
+survivor_logs/
+status/
+delta_limits.json
+scalping_strategy_config.json
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+venv/
+.venv/
+
+# docs build
+site/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store

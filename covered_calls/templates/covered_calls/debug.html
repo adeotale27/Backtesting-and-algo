@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Covered Calls — Holdings Debug</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+    .page { max-width: 1300px; margin: 0 auto; padding: 24px 20px 60px; }
+    .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .page-title { font-size: 20px; font-weight: 700; color: #f6ad55; }
+    .page-sub { font-size: 12px; color: #718096; margin-bottom: 20px; }
+    .back-link { font-size: 12px; color: #63b3ed; text-decoration: none; }
+    .back-link:hover { color: #90cdf4; }
+
+    .summary-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .chip { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .chip-total { background: #2d3748; color: #a0aec0; }
+    .chip-included { background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); }
+    .chip-excluded { background: rgba(252,129,129,0.15); color: #fc8181; border: 1px solid rgba(252,129,129,0.3); }
+
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+    .filter-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid #2d3748; background: #1a1f2e;
+                  color: #a0aec0; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+    .filter-btn:hover, .filter-btn.active { border-color: #f6ad55; color: #f6ad55; background: rgba(246,173,85,0.08); }
+    .search-input { padding: 5px 12px; border-radius: 6px; border: 1px solid #2d3748; background: #1a1f2e;
+                    color: #e2e8f0; font-size: 12px; width: 180px; outline: none; }
+    .search-input:focus { border-color: #63b3ed; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: #1a1f2e; color: #718096; font-weight: 700; font-size: 10px; letter-spacing: 0.06em;
+         text-transform: uppercase; padding: 8px 10px; text-align: left; border-bottom: 1px solid #2d3748; position: sticky; top: 0; }
+    td { padding: 9px 10px; border-bottom: 1px solid #1a1f2e; vertical-align: middle; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+    .badge-ok    { background: rgba(72,187,120,0.15); color: #48bb78; }
+    .badge-warn  { background: rgba(252,129,129,0.15); color: #fc8181; }
+    .badge-pledged { background: rgba(246,173,85,0.15); color: #f6ad55; font-size: 9px; margin-left: 4px; }
+
+    .reason-cell { color: #fc8181; font-size: 11px; }
+    .reason-ok   { color: #48bb78; font-size: 11px; }
+    .num { font-variant-numeric: tabular-nums; }
+    .dim { color: #4a5568; }
+
+    #loading { text-align: center; padding: 60px; color: #718096; font-size: 14px; }
+    #error-msg { text-align: center; padding: 40px; color: #fc8181; font-size: 13px; display: none; }
+  </style>
+</head>
+<body>
+{% include '_header_partial.html' %}
+
+<div class="page">
+  <div class="page-header">
+    <a href="/covered_calls/" class="back-link"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
+  </div>
+  <div class="page-title">Holdings Eligibility Debug</div>
+  <div class="page-sub">Shows every holding from Kite and exactly why it was included or excluded from the Covered Calls dashboard.</div>
+
+  <div class="summary-row" id="summary-row">
+    <span class="chip chip-total" id="chip-total">Loading…</span>
+  </div>
+
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+    <button class="filter-btn" onclick="setFilter('included', this)">Included</button>
+    <button class="filter-btn" onclick="setFilter('excluded', this)">Excluded</button>
+    <input class="search-input" id="search-input" placeholder="Search symbol…" oninput="applyFilters()">
+  </div>
+
+  <div id="loading"><i class="fas fa-spinner fa-spin"></i> Loading holdings…</div>
+  <div id="error-msg"></div>
+
+  <table id="debug-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Exchange</th>
+        <th>Qty</th>
+        <th>Pledged</th>
+        <th>Collateral</th>
+        <th>T1</th>
+        <th>Settled</th>
+        <th>Lot Size</th>
+        <th>Coverage</th>
+        <th>Eligible Lots</th>
+        <th>LTP</th>
+        <th>Avg Price</th>
+        <th>Status</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody id="debug-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+var _allRows = [];
+var _currentFilter = 'all';
+
+function fmt(n, dec) {
+  if (n == null || n === '') return '—';
+  return parseFloat(n).toFixed(dec != null ? dec : 0);
+}
+
+function setFilter(f, btn) {
+  _currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  var search = (document.getElementById('search-input').value || '').toUpperCase().trim();
+  var tbody = document.getElementById('debug-tbody');
+  var rows = tbody.querySelectorAll('tr[data-symbol]');
+  rows.forEach(function(tr) {
+    var sym = (tr.getAttribute('data-symbol') || '').toUpperCase();
+    var excl = tr.getAttribute('data-excluded') === 'true';
+    var matchFilter = _currentFilter === 'all' ||
+                      (_currentFilter === 'included' && !excl) ||
+                      (_currentFilter === 'excluded' && excl);
+    var matchSearch = !search || sym.indexOf(search) !== -1;
+    tr.style.display = (matchFilter && matchSearch) ? '' : 'none';
+  });
+}
+
+function renderRows(holdings) {
+  var tbody = document.getElementById('debug-tbody');
+  tbody.innerHTML = '';
+  holdings.forEach(function(h) {
+    var excluded = h.excluded;
+    var hasPledged = h.pledged_qty > 0;
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-symbol', h.symbol);
+    tr.setAttribute('data-excluded', excluded ? 'true' : 'false');
+
+    var hasCollateral = h.collateral_qty > 0;
+    var pledgedTag = hasPledged ? '<span class="badge badge-pledged">PLEDGED</span>' : '';
+    var collateralTag = hasCollateral ? '<span class="badge badge-pledged">COLLATERAL</span>' : '';
+    var coverageTxt = h.lot_size ? (h.coverage_pct + '%') : '—';
+    var lotsColor = (!excluded && h.eligible_lots > 0) ? 'color:#48bb78' : 'color:#718096';
+
+    tr.innerHTML =
+      '<td><strong>' + h.symbol + '</strong>' + pledgedTag + collateralTag + '</td>' +
+      '<td class="dim">' + h.exchange + '</td>' +
+      '<td class="num">' + h.quantity + '</td>' +
+      '<td class="num" style="color:' + (hasPledged ? '#f6ad55' : '#4a5568') + '">' + h.pledged_qty + '</td>' +
+      '<td class="num" style="color:' + (hasCollateral ? '#f6ad55' : '#4a5568') + '">' + h.collateral_qty + '</td>' +
+      '<td class="num dim">' + h.t1_quantity + '</td>' +
+      '<td class="num"><strong>' + h.settled_qty + '</strong></td>' +
+      '<td class="num">' + (h.lot_size != null ? h.lot_size : '<span class="dim">—</span>') + '</td>' +
+      '<td class="num">' + coverageTxt + '</td>' +
+      '<td class="num" style="' + lotsColor + '">' + h.eligible_lots + '</td>' +
+      '<td class="num dim">₹' + fmt(h.ltp, 1) + '</td>' +
+      '<td class="num dim">₹' + fmt(h.avg_price, 1) + '</td>' +
+      '<td>' + (excluded
+          ? '<span class="badge badge-warn">Excluded</span>'
+          : '<span class="badge badge-ok">Included</span>') + '</td>' +
+      '<td class="' + (excluded ? 'reason-cell' : 'reason-ok') + '">' + h.exclusion_reason + '</td>';
+
+    tbody.appendChild(tr);
+  });
+}
+
+function load() {
+  fetch('/covered_calls/api/debug_holdings')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        document.getElementById('loading').style.display = 'none';
+        var err = document.getElementById('error-msg');
+        err.textContent = data.error;
+        err.style.display = 'block';
+        return;
+      }
+      _allRows = data.holdings || [];
+
+      var sr = document.getElementById('summary-row');
+      sr.innerHTML =
+        '<span class="chip chip-total">Total ' + data.total + '</span>' +
+        '<span class="chip chip-included"><i class="fas fa-check"></i> Included ' + data.included + '</span>' +
+        '<span class="chip chip-excluded"><i class="fas fa-times"></i> Excluded ' + data.excluded + '</span>';
+
+      renderRows(_allRows);
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('debug-table').style.display = '';
+      applyFilters();
+    })
+    .catch(function(e) {
+      document.getElementById('loading').style.display = 'none';
+      var err = document.getElementById('error-msg');
+      err.textContent = 'Failed to load: ' + e.message;
+      err.style.display = 'block';
+    });
+}
+
+load();
+</script>
+</body>
+</html>

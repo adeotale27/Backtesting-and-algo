@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Complete | Trading System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f8fafc;
+            padding: 2rem 1rem;
+        }
+        .card {
+            width: 100%;
+            max-width: 520px;
+            background: rgba(30,41,59,0.7);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 2.5rem;
+            text-align: center;
+        }
+        h1 { font-size: 1.4rem; margin: 0.8rem 0; }
+        p { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; margin-bottom: 1rem; }
+        code {
+            background: rgba(15,23,42,0.8);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #a5b4fc;
+        }
+        .check { font-size: 2.6rem; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="check">✅</div>
+        <h1>Configuration Saved</h1>
+        <p><code>configfile.ini</code> has been written. Most settings are read once at
+        startup, so <strong>restart the app now</strong> to apply them:</p>
+        <p><code>python flask_app.py</code></p>
+        <p>Then log in at <code>/app_login</code> with the dashboard credentials you just created.</p>
+    </div>
+</body>
+</html>
