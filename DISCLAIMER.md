@@ -2,6 +2,13 @@
 
 **READ THIS BEFORE USING THE SOFTWARE.**
 
+## Educational Purpose
+
+This project is published **for educational purposes** — to show one way of
+building a self-hosted algorithmic trading setup on top of the Zerodha Kite
+Connect API. It is a reference implementation, not a packaged product or a
+trading signal service.
+
 ## Financial Risk
 
 This software places **real orders with real money** on Indian stock
@@ -17,8 +24,10 @@ risk of loss**. You can lose more than your initial investment.
   conditions can all cause orders to be placed, modified, cancelled, or
   missed in ways you do not expect.
 
-**You are solely responsible for every order this software places on your
-account and for any resulting financial loss.**
+**Please understand the code before using it.** Do not deploy anything you
+have not personally reviewed. **You are solely responsible for every order
+this software places on your account and for any resulting financial
+loss** — the authors and contributors bear none.
 
 ## No Warranty
 

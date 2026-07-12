@@ -398,6 +398,9 @@ def enforce_auth():
     if request.blueprint == "setup_wizard":
         return
 
+    if request.endpoint == "disclaimer":
+        return
+
     if not _setup_config_complete():
         if request.endpoint == "static":
             return
@@ -456,6 +459,17 @@ def app_logout():
     session.pop('request_token', None)
     logging.info("User logged out and session cleared.")
     return redirect(url_for('app_login'))
+
+@app.route("/disclaimer")
+def disclaimer():
+    """No-warranty / no-liability / educational-use disclaimer page.
+
+    Linked from every page's footer. Reachable at every stage of the app
+    lifecycle (pre-setup, pre-login, fully configured) — see the exemption
+    in enforce_auth() above — so it works even before a self-hoster has
+    written configfile.ini or logged in.
+    """
+    return render_template("disclaimer.html")
 
 
 # Register Notifications Blueprint

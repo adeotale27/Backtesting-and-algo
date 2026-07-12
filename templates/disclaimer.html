@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disclaimer | Trading System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+            min-height: 100vh;
+            color: #f8fafc;
+            padding: 3rem 1.5rem;
+        }
+        .card {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto;
+            background: rgba(30,41,59,0.7);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 2.5rem;
+        }
+        h1 { font-size: 1.6rem; margin-bottom: 1.5rem; }
+        h2 { font-size: 1.05rem; margin: 1.6rem 0 0.5rem; color: #a5b4fc; }
+        p, li { color: #cbd5e1; font-size: 0.92rem; line-height: 1.7; }
+        ul { margin: 0.4rem 0 0.4rem 1.4rem; }
+        strong { color: #f8fafc; }
+        .back { display: inline-block; margin-top: 2rem; color: #a5b4fc; text-decoration: none; font-size: 0.9rem; }
+        .back:hover { text-decoration: underline; }
+        .badge {
+            display: inline-block;
+            background: rgba(248,113,113,0.15);
+            border: 1px solid rgba(248,113,113,0.4);
+            color: #fca5a5;
+            font-size: 0.78rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="badge">Read before using this software</span>
+        <h1>Disclaimer — No Liability, Educational Use Only</h1>
+
+        <h2>Educational Purpose</h2>
+        <p>This project is published <strong>for educational purposes</strong> — to
+        show one way of building a self-hosted algorithmic trading setup on top of
+        the Zerodha Kite Connect API. It is a reference implementation, not a
+        packaged product or a trading signal service.</p>
+
+        <h2>No Liability for Losses</h2>
+        <p>This software can place <strong>real orders with real money</strong> on
+        Indian stock exchanges when live trading is enabled. Algorithmic trading of
+        futures and options carries a substantial risk of loss, and you can lose
+        more than you put in.</p>
+        <p>The authors and contributors of this project <strong>accept no
+        responsibility and no liability whatsoever</strong> for any financial loss,
+        missed trade, incorrect order, data error, downtime, or any other damage
+        arising from the use of this software, in whole or in part.</p>
+
+        <h2>Your Responsibility</h2>
+        <ul>
+            <li><strong>Read and understand the code before you run it.</strong> Do
+            not deploy anything you have not personally reviewed.</li>
+            <li>Every order this software places on your account — and every
+            consequence of that order — is <strong>solely your responsibility</strong>,
+            not the authors'.</li>
+            <li>Test thoroughly in dry-run mode before ever enabling live trading,
+            and only enable it once you accept these risks in full.</li>
+        </ul>
+
+        <h2>No Warranty</h2>
+        <p>This software is provided <strong>"AS IS"</strong>, without warranty of
+        any kind, express or implied, including but not limited to fitness for a
+        particular purpose. See the LICENSE file in the repository for the full
+        warranty disclaimer.</p>
+
+        <h2>Not Affiliated with Zerodha</h2>
+        <p>This is an independent, community project. It is not affiliated with,
+        endorsed by, or supported by Zerodha Broking Ltd. or any exchange. Use of
+        the Kite Connect API is subject to Zerodha's own terms of service.</p>
+
+        <a class="back" href="javascript:history.back()">&larr; Back</a>
+    </div>
+{% include '_footer_partial.html' %}
+</body>
+</html>
