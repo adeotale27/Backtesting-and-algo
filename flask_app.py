@@ -505,6 +505,58 @@ def _startup_integrity_check() -> None:
 
 _startup_integrity_check()
 
+
+def _startup_auto_sync_if_needed() -> None:
+    """Kick off a background instrument sync at boot if the table is empty.
+
+    Covers two installation-time gaps that a plain integrity check can't:
+      - A brand-new install with no backup table to restore from (the only
+        prior recovery path) sits at 0 rows until someone logs in AND the
+        first login's own auto-sync (see /api/establish_session) completes.
+      - A server restart mid-day, after backup-restore already ran, where a
+        still-valid Kite token is on file (instrument_cache.get_kite_token())
+        from an earlier login — previously nothing re-triggered a sync until
+        the user manually clicked "Sync Instruments" or re-logged in.
+
+    Runs in a background thread so a ~60k-instrument fetch never delays
+    server startup; sync_instruments()'s own lock (instrument_cache.py)
+    makes it safe to race harmlessly against a concurrent login-triggered
+    sync — one wins, the other backs off instead of corrupting anything.
+    """
+    try:
+        if not instrument_cache.needs_sync():
+            return
+        stored_token = instrument_cache.get_kite_token()
+        if not stored_token:
+            logging.info(
+                "[startup] instruments table needs sync but no stored Kite "
+                "token is available yet — will sync automatically on first login."
+            )
+            return
+
+        def _run_sync() -> None:
+            try:
+                kite = MonitoredKite(KiteConnect(api_key=kite_api_key), account_id="main")
+                kite.set_access_token(stored_token)
+                if _safe_sync_instruments(kite):
+                    logging.info("[startup] background instrument sync completed successfully")
+                else:
+                    logging.warning(
+                        "[startup] background instrument sync did not complete — "
+                        "stored token may be expired; will retry on next login."
+                    )
+            except Exception:  # noqa: BLE001
+                logging.exception("[startup] background instrument sync failed")
+
+        threading.Thread(target=_run_sync, name="startup-instrument-sync", daemon=True).start()
+        logging.info("[startup] instruments table empty — background sync started using stored token")
+    except Exception as exc:  # noqa: BLE001
+        logging.error("[startup] auto-sync check failed: %s", exc)
+
+
+# Invoked below, once _safe_sync_instruments() is defined (avoids a forward
+# reference from the background thread this function spawns).
+
 # Initialise notification DB tables and start the background scheduler
 from notifications.database import init_db as _notifications_init_db
 _notifications_init_db()
@@ -533,6 +585,8 @@ def _safe_sync_instruments(kite: object) -> bool:  # type: ignore[type-arg]
         )
         return False
 
+
+_startup_auto_sync_if_needed()
 
 # Templates
 index_template = """
