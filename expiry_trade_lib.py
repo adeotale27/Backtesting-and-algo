@@ -19,11 +19,18 @@ from typing import Optional, Dict, List, Any, Tuple
 from collections import defaultdict
 
 import pandas as pd
-import pandas_ta as ta
 from kiteconnect import KiteConnect, KiteTicker
 
-
 logger = logging.getLogger(__name__)
+
+try:
+    import pandas_ta as ta
+except ImportError:
+    ta = None
+    logger.warning(
+        "pandas_ta not installed (requires Python >= 3.12) — "
+        "Stochastic RSI signals will be unavailable; everything else works."
+    )
 
 
 class ExpiryTradeSystem:
@@ -504,6 +511,10 @@ class ExpiryTradeSystem:
         Results stored in self._stoch_rsi as list of
         {time, k, d} dicts.
         """
+        if ta is None:
+            self._stoch_rsi = []
+            return
+
         if len(self._candles) < 35:
             # Need RSI(14) + Stoch(14) + K(3) + D(3) warmup
             self._stoch_rsi = []
