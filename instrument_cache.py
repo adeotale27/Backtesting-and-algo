@@ -14,6 +14,7 @@ import os
 import logging
 import datetime
 import functools
+import threading
 from typing import Optional, Dict, Any, List
 
 import holidays as holidays_lib
@@ -35,6 +36,15 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "instruments.db")
 SYNC_MARKER_PATH = os.path.join(BASE_DIR, ".last_instrument_sync")
+
+# Guards sync_instruments() against concurrent execution. Without this, two
+# near-simultaneous triggers (e.g. the auto-sync fired by a successful Kite
+# login racing a manual "Sync Instruments" click) each open their own
+# connection and DROP/CREATE/INSERT into the same `instruments_new` staging
+# table — one thread's DROP can remove the table out from under the other
+# mid-INSERT, failing with "no such table: instruments_new" and leaving the
+# live table stuck empty even though neither sync corrupted it individually.
+_sync_lock = threading.Lock()
 
 # DDL shared between the live and staging tables.
 _HOLIDAYS_DDL = """
@@ -375,6 +385,22 @@ def sync_instruments(kite: Any) -> bool:  # type: ignore[type-arg]
     bool
         True when the sync completed and the live table was swapped.
     """
+    if not _sync_lock.acquire(blocking=False):
+        logger.warning(
+            "sync_instruments: another sync is already in progress — "
+            "skipping this concurrent call rather than racing on the "
+            "instruments_new staging table."
+        )
+        return False
+
+    try:
+        return _sync_instruments_locked(kite)
+    finally:
+        _sync_lock.release()
+
+
+def _sync_instruments_locked(kite: Any) -> bool:  # type: ignore[type-arg]
+    """Body of :func:`sync_instruments`, run while ``_sync_lock`` is held."""
     logger.info("Starting instrument sync from Zerodha (atomic swap)...")
     start_time = get_ist_now()
     records_synced = 0
