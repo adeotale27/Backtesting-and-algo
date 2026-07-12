@@ -35,16 +35,59 @@
             color: #a5b4fc;
         }
         .check { font-size: 2.6rem; }
+        .spinner {
+            width: 22px; height: 22px; margin: 0.4rem auto 1rem;
+            border: 3px solid rgba(165,180,252,0.25);
+            border-top-color: #a5b4fc;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #status { color: #a5b4fc; }
     </style>
 </head>
 <body>
     <div class="card">
         <div class="check">✅</div>
         <h1>Configuration Saved</h1>
-        <p><code>configfile.ini</code> has been written. Most settings are read once at
-        startup, so <strong>restart the app now</strong> to apply them:</p>
-        <p><code>python flask_app.py</code></p>
-        <p>Then log in at <code>/app_login</code> with the dashboard credentials you just created.</p>
+        <p><code>configfile.ini</code> has been written. The server is restarting itself
+        automatically to apply it — no manual restart needed.</p>
+        <div class="spinner"></div>
+        <p id="status">Waiting for the server to come back up&hellip;</p>
+        <p>If this takes more than a minute, restart the app manually:
+        <code>python flask_app.py</code></p>
     </div>
+    <script>
+        (function () {
+            var statusEl = document.getElementById("status");
+            var startedAt = Date.now();
+
+            function goToLogin() {
+                window.location.href = "/app_login";
+            }
+
+            function poll() {
+                fetch("/app_login", { method: "GET", cache: "no-store" })
+                    .then(function (response) {
+                        if (response.ok || response.status === 302) {
+                            statusEl.textContent = "Server is back — redirecting to login…";
+                            setTimeout(goToLogin, 500);
+                        } else {
+                            scheduleRetry();
+                        }
+                    })
+                    .catch(scheduleRetry);
+            }
+
+            function scheduleRetry() {
+                if (Date.now() - startedAt > 60000) {
+                    statusEl.textContent = "Still restarting… if this doesn't finish soon, restart the app manually.";
+                }
+                setTimeout(poll, 1500);
+            }
+
+            setTimeout(poll, 2500);
+        })();
+    </script>
 </body>
 </html>

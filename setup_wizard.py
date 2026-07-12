@@ -15,8 +15,10 @@ import configparser
 import logging
 import os
 import re
+import sys
 import tempfile
 import threading
+import time
 from typing import Optional
 
 from flask import Blueprint, redirect, render_template, request, url_for
@@ -181,6 +183,30 @@ def _write_config(form: dict) -> None:
     logging.info("setup_wizard: configfile.ini written (live_trading=%s)", live_trading_on)
 
 
+def _schedule_self_restart(delay_seconds: float = 1.5) -> None:
+    """Restart this process in-place shortly after the response is sent.
+
+    Most config-derived state (the Kite API key/secret, the ``kite`` client
+    singleton, safety/dry-run flags, cool-off timers) is read once at import
+    time across `common_lib`/`flask_app`, so an in-memory reload would have to
+    re-derive all of that scattered state correctly. Since the app runs as a
+    single waitress process with no reloader, `os.execv` re-executing the same
+    interpreter invocation is simpler and safer: it keeps the same PID (so a
+    systemd unit sees no restart event) while re-running every import fresh
+    against the newly written configfile.ini.
+
+    Args:
+        delay_seconds: How long to wait before restarting, giving the
+            "setup complete" response time to reach the browser first.
+    """
+    def _restart() -> None:
+        time.sleep(delay_seconds)
+        logging.info("setup_wizard: restarting process in-place to apply new configfile.ini")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    threading.Thread(target=_restart, name="setup-wizard-restart", daemon=True).start()
+
+
 @setup_bp.route("/setup", methods=["GET", "POST"])
 def setup_page():
     """Render and process the first-run configuration form.
@@ -203,6 +229,7 @@ def setup_page():
                 error=f"Could not write configfile.ini: {write_error}",
                 form=request.form,
             ), 500
+        _schedule_self_restart()
         return render_template("setup_wizard_done.html")
 
     return render_template("setup_wizard.html", error=None, form={})
