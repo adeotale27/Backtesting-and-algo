@@ -756,13 +756,19 @@ def _render_creds(flash=None, flash_type="info"):
         except Exception as exc:  # noqa: BLE001
             status["probe_error"] = str(exc)[:180]
 
-    # Determine dry-run vs live for the header badge.
+    # Read live_trading + paper_capital fresh from disk.
     _dry_run = True
+    _paper_capital = 500000
     try:
         _cfg = configparser.ConfigParser()
         _cfg.read(config_path)
         if "safety" in _cfg:
             _dry_run = _cfg["safety"].get("live_trading", "false").strip().lower() != "true"
+        if "paper_trading" in _cfg:
+            try:
+                _paper_capital = int(float(_cfg["paper_trading"].get("capital", "500000")))
+            except (ValueError, TypeError):
+                _paper_capital = 500000
     except Exception:  # noqa: BLE001
         pass
 
@@ -772,6 +778,70 @@ def _render_creds(flash=None, flash_type="info"):
         flash=flash,
         flash_type=flash_type,
         dry_run=_dry_run,
+        paper_capital=_paper_capital,
+    )
+
+
+@app.route("/creds/toggle-mode", methods=["POST"])
+def creds_toggle_mode():
+    """Flip [safety] live_trading between paper (false) and live (true)."""
+    import common_lib  # for hot-reload of the module-level flag
+
+    requested = (request.form.get("mode") or "").strip().lower()
+    if requested not in ("paper", "live"):
+        return redirect(url_for("creds_page"))
+
+    new_flag = "true" if requested == "live" else "false"
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path)
+        if "safety" not in cfg:
+            cfg["safety"] = {}
+        cfg["safety"]["live_trading"] = new_flag
+        with open(config_path, "w") as fh:
+            cfg.write(fh)
+        # Hot-reload the flag so the change takes effect without restarting.
+        common_lib.live_trading_enabled = (new_flag == "true")
+        logging.warning(
+            "[trading-mode] switched to %s (live_trading=%s) via /creds",
+            requested.upper(), new_flag,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Failed to toggle trading mode")
+        return _render_creds(f"Failed to switch mode: {exc}", "err")
+
+    msg = ("🔴 Switched to <b>LIVE</b> trading. Real orders will now hit Zerodha."
+           if requested == "live" else
+           "📄 Switched to <b>PAPER</b> trading. All orders are simulated.")
+    return _render_creds(msg, "warn" if requested == "live" else "ok")
+
+
+@app.route("/creds/paper-capital", methods=["POST"])
+def creds_paper_capital():
+    """Persist the paper-trading allocated capital to configfile.ini."""
+    raw = (request.form.get("paper_capital") or "").strip()
+    try:
+        capital = int(float(raw))
+        if capital < 0:
+            raise ValueError("negative")
+    except (ValueError, TypeError):
+        return _render_creds("Invalid capital amount.", "err")
+
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path)
+        if "paper_trading" not in cfg:
+            cfg["paper_trading"] = {}
+        cfg["paper_trading"]["capital"] = str(capital)
+        with open(config_path, "w") as fh:
+            cfg.write(fh)
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Failed to save paper capital")
+        return _render_creds(f"Failed to save capital: {exc}", "err")
+
+    return _render_creds(
+        f"Paper trading capital set to ₹{capital:,}.",
+        "ok",
     )
 
 

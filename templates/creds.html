@@ -18,6 +18,8 @@
             --ok: #22c55e;
             --err: #f43f5e;
             --warn: #f59e0b;
+            --live: #ef4444;
+            --paper: #f59e0b;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -42,7 +44,7 @@
             font-size: 11px; padding: 3px 10px;
             border: 1px solid var(--border); border-radius: 999px;
             color: var(--dim);
-            {% if dry_run %}background: rgba(245,158,11,0.08); color: var(--warn); border-color: rgba(245,158,11,0.3);{% else %}background: rgba(244,63,94,0.08); color: var(--err); border-color: rgba(244,63,94,0.3);{% endif %}
+            {% if dry_run %}background: rgba(245,158,11,0.08); color: var(--paper); border-color: rgba(245,158,11,0.3);{% else %}background: rgba(239,68,68,0.08); color: var(--live); border-color: rgba(239,68,68,0.35);{% endif %}
         }
         .sub { color: var(--dim); margin-bottom: 32px; font-size: 14px; }
         .card {
@@ -60,7 +62,7 @@
             letter-spacing: 0.08em; color: var(--dim); margin-bottom: 8px;
             font-weight: 600;
         }
-        input[type=text], input[type=password] {
+        input[type=text], input[type=password], input[type=number] {
             width: 100%; padding: 12px 14px;
             background: #0a0f1c; color: var(--text);
             border: 1px solid var(--border); border-radius: 8px;
@@ -77,16 +79,21 @@
             border-radius: 8px; border: none; cursor: pointer;
             font-family: inherit;
             transition: transform .06s, background .15s;
+            text-decoration: none;
+            display: inline-flex; align-items: center;
         }
         .btn-primary { background: var(--accent); color: #032025; }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
         .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger { background: rgba(239,68,68,0.12); color: #fda4a4; border: 1px solid rgba(239,68,68,0.4); }
+        .btn-danger:hover { background: rgba(239,68,68,0.2); color: #fecaca; }
         button:active { transform: translateY(1px); }
         .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
         .flash.ok  { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
         .flash.err { background: rgba(244,63,94,0.08); border: 1px solid rgba(244,63,94,0.3); color: #fda4af; }
         .flash.info{ background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.25); color: #a5f3fc; }
+        .flash.warn{ background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fcd34d; }
         .status-grid {
             display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
             font-family: 'JetBrains Mono', monospace; font-size: 12px;
@@ -104,7 +111,52 @@
             margin-top: 24px;
         }
         .footer a { color: var(--accent); text-decoration: none; }
-        .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+        /* Trading mode segmented toggle */
+        .mode-toggle {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+            background: #0a0f1c; border: 1px solid var(--border);
+            border-radius: 10px; padding: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .mode-toggle button {
+            background: transparent; border: none; color: var(--dim);
+            padding: 14px 16px; border-radius: 6px; cursor: pointer;
+            font-weight: 600; font-family: inherit; font-size: 13px;
+            text-align: left;
+            transition: background .15s, color .15s;
+        }
+        .mode-toggle button.active-paper {
+            background: rgba(245,158,11,0.15); color: var(--paper);
+            box-shadow: inset 0 0 0 1px rgba(245,158,11,0.35);
+        }
+        .mode-toggle button.active-live {
+            background: rgba(239,68,68,0.15); color: var(--live);
+            box-shadow: inset 0 0 0 1px rgba(239,68,68,0.4);
+        }
+        .mode-toggle .mode-tag {
+            display: block; font-size: 10px; text-transform: uppercase;
+            letter-spacing: 0.08em; opacity: 0.7; margin-bottom: 4px;
+            font-weight: 700;
+        }
+        .mode-toggle .mode-desc { display: block; font-size: 11px; opacity: 0.75; font-weight: 400; line-height: 1.4; font-family: 'Inter', sans-serif; }
+
+        .capital-input { position: relative; }
+        .capital-input::before {
+            content: '₹'; position: absolute; left: 14px; top: 12px;
+            color: var(--dim); font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; pointer-events: none;
+        }
+        .capital-input input { padding-left: 30px; }
+        .quick-picks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .quick-picks button {
+            padding: 6px 12px; font-size: 12px; font-weight: 500;
+            background: #0a0f1c; border: 1px solid var(--border);
+            border-radius: 6px; color: var(--dim); cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .quick-picks button:hover { border-color: var(--accent); color: var(--accent); }
+
         details {
             background: #0a0f1c; border: 1px solid var(--border);
             border-radius: 8px; padding: 12px 14px; margin-top: 12px;
@@ -120,26 +172,68 @@
 <div class="wrap">
     <div class="brand">
         <h1>kite-creds</h1>
-        <span class="badge">{% if dry_run %}DRY-RUN{% else %}LIVE{% endif %}</span>
+        <span class="badge" data-testid="trading-mode-badge">{% if dry_run %}PAPER{% else %}LIVE{% endif %}</span>
     </div>
-    <div class="sub">Paste your Zerodha Kite Connect credentials below. They persist on disk and are re-applied on every restart.</div>
+    <div class="sub">Paste your Zerodha Kite Connect credentials, switch modes, and allocate paper capital. Everything persists on disk.</div>
 
     {% if flash %}
-    <div class="flash {{ flash_type }}">{{ flash|safe }}</div>
+    <div class="flash {{ flash_type }}" data-testid="creds-flash">{{ flash|safe }}</div>
+    {% endif %}
+
+    <!-- Trading Mode -->
+    <div class="card">
+        <h2>Trading mode</h2>
+        <p class="help">Paper (dry-run) simulates every order without contacting Zerodha. Live sends real orders.</p>
+        <form method="POST" action="/creds/toggle-mode" style="margin:0;">
+            <div class="mode-toggle">
+                <button type="submit" name="mode" value="paper" class="{% if dry_run %}active-paper{% endif %}" data-testid="mode-toggle-paper">
+                    <span class="mode-tag">📄 Paper</span>
+                    <span class="mode-desc">Simulated orders. Uses allocated capital below. Safe for testing.</span>
+                </button>
+                <button type="submit" name="mode" value="live" class="{% if not dry_run %}active-live{% endif %}" data-testid="mode-toggle-live" onclick="return confirm('⚠️ Switch to LIVE trading?\n\nReal orders will be placed on your Zerodha account. Are you absolutely sure?');">
+                    <span class="mode-tag">🔴 Live</span>
+                    <span class="mode-desc">Real money. Real orders. Uses actual Zerodha margin.</span>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {% if dry_run %}
+    <!-- Paper trading fund allocation (only shown when in paper mode) -->
+    <div class="card">
+        <h2>Paper trading capital</h2>
+        <p class="help">Virtual funds available for the paper trading engine. Margin checks in paper mode compare against this number instead of your real Zerodha margin.</p>
+        <form method="POST" action="/creds/paper-capital">
+            <div class="row capital-input">
+                <label for="paper_capital">Allocated capital</label>
+                <input type="number" id="paper_capital" name="paper_capital" value="{{ paper_capital }}" min="0" step="1000" data-testid="paper-capital-input" required>
+                <div class="quick-picks">
+                    <button type="button" onclick="document.getElementById('paper_capital').value=100000">₹1L</button>
+                    <button type="button" onclick="document.getElementById('paper_capital').value=500000">₹5L</button>
+                    <button type="button" onclick="document.getElementById('paper_capital').value=1000000">₹10L</button>
+                    <button type="button" onclick="document.getElementById('paper_capital').value=2500000">₹25L</button>
+                    <button type="button" onclick="document.getElementById('paper_capital').value=10000000">₹1Cr</button>
+                </div>
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn-primary" data-testid="paper-capital-save-btn">Save Capital</button>
+            </div>
+        </form>
+    </div>
     {% endif %}
 
     <div class="card">
-        <h2>Current status</h2>
-        <p class="help">Live health of the Kite connection.</p>
+        <h2>Kite connection status</h2>
+        <p class="help">Live health of the Zerodha Kite Connect session.</p>
         <div class="status-grid">
             <div class="cell"><div class="k">API key</div><div class="v {% if status.api_key_set %}ok{% else %}err{% endif %}">{{ status.api_key_display }}</div></div>
             <div class="cell"><div class="k">API secret</div><div class="v {% if status.api_secret_set %}ok{% else %}err{% endif %}">{{ status.api_secret_display }}</div></div>
             <div class="cell"><div class="k">Access token</div><div class="v {% if status.access_token_set %}ok{% else %}err{% endif %}">{{ status.access_token_display }}</div></div>
         </div>
         {% if status.probe_ok %}
-        <div class="flash ok" style="margin-top:16px;">Kite session probe passed. Profile: <b>{{ status.probe_name }}</b> ({{ status.probe_user_id }})</div>
+        <div class="flash ok" style="margin-top:16px;" data-testid="probe-ok">Kite session probe passed. Profile: <b>{{ status.probe_name }}</b> ({{ status.probe_user_id }})</div>
         {% elif status.probe_error %}
-        <div class="flash err" style="margin-top:16px;">Kite session probe failed: {{ status.probe_error }}</div>
+        <div class="flash err" style="margin-top:16px;" data-testid="probe-err">Kite session probe failed: {{ status.probe_error }}</div>
         {% endif %}
     </div>
 
@@ -162,8 +256,8 @@
 
             <div class="grid-2">
                 <div class="row">
-                    <label for="request_token">Request token <span style="text-transform:none;color:var(--dim);font-weight:400;">(from Kite login redirect — optional)</span></label>
-                    <input type="text" id="request_token" name="request_token" placeholder="one-time — will be exchanged for an access token" data-testid="creds-request-token-input" autocomplete="off">
+                    <label for="request_token">Request token <span style="text-transform:none;color:var(--dim);font-weight:400;">(one-time, from Kite login redirect)</span></label>
+                    <input type="text" id="request_token" name="request_token" placeholder="will be exchanged for an access token" data-testid="creds-request-token-input" autocomplete="off">
                 </div>
                 <div class="row">
                     <label for="access_token">Access token <span style="text-transform:none;color:var(--dim);font-weight:400;">(direct)</span></label>
@@ -174,7 +268,7 @@
             <div class="actions">
                 <button type="submit" name="action" value="save" class="btn-primary" data-testid="creds-save-btn">Save &amp; Apply</button>
                 <a href="/" class="btn btn-secondary" data-testid="creds-open-dashboard-btn">Open Dashboard →</a>
-                <button type="submit" name="action" value="clear_token" class="btn-secondary" data-testid="creds-clear-btn" onclick="return confirm('Clear the stored access token?');">Clear Access Token</button>
+                <button type="submit" name="action" value="clear_token" class="btn-danger" data-testid="creds-clear-btn" onclick="return confirm('Clear the stored access token?');">Clear Access Token</button>
             </div>
 
             <details>

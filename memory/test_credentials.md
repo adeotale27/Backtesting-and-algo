@@ -1,17 +1,18 @@
 # Test Credentials
 
-## App access (gatekeeper BYPASSED)
-The Flask gatekeeper login has been bypassed. Every session is auto-authenticated.
-Landing URL redirects to `/creds` if no Kite token is stored, otherwise to `/home`.
+## App access
+Gatekeeper is BYPASSED — no login. Landing on `/` redirects to `/creds` if no token, else `/home`.
 
-## Kite Connect (Zerodha) - already saved
+## Kite Connect (Zerodha) — persisted
 - API key:      79m7qb0mj6bzh9f8
 - API secret:   w6ax073pxxa4trviwbwcsouebthrdnuy
-- Access token: ytgmRcgtR61qCN5ZPYaHIGv4SXAz7ha5   (persisted in instruments.db → kite_session_tokens)
-- Kite profile verified: Aniket Damodhar Deotale (HV7316)
+- Access token: ytgmRcgtR61qCN5ZPYaHIGv4SXAz7ha5 (in kite_session_tokens table)
+- Kite profile: Aniket Damodhar Deotale (HV7316) — probe passes.
 
-## Update creds any time
-Open `/creds` in browser. Blank fields keep old values. `request_token` field auto-exchanges to a fresh access token.
+## Trading mode
+- Current: PAPER (dry-run, `[safety] live_trading = false`)
+- Paper capital: ₹500,000 (`[paper_trading] capital = 500000`)
+- Toggle via /creds page.
 
-## Safety
-`[safety] live_trading = false` in /app/configfile.ini — DRY-RUN mode, no real orders sent.
+## Update creds
+Open /creds. Blank fields keep old values. `request_token` auto-exchanges.
