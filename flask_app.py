@@ -939,6 +939,9 @@ def backtest_run():
 # session-authenticated but does not include the CSRF token header.
 if _SECURITY_EXTENSIONS_AVAILABLE and csrf is not None:
     csrf.exempt(backtest_run)
+    csrf.exempt(creds_page)
+    csrf.exempt(creds_toggle_mode)
+    csrf.exempt(creds_paper_capital)
 
 
 # ============================================================================
