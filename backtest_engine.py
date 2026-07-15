@@ -22,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 # Kite instrument tokens for the underlying indices (well-known constants).
 INDEX_TOKENS: Dict[str, Dict[str, object]] = {
-    "NIFTY":     {"token": 256265,  "name": "NIFTY 50",      "lot": 50},
-    "BANKNIFTY": {"token": 260105,  "name": "NIFTY BANK",    "lot": 15},
-    "SENSEX":    {"token": 265,     "name": "SENSEX",        "lot": 10},
+    "NIFTY":     {"token": 256265,  "name": "NIFTY 50",      "lot": 65,  "strike_gap": 50},
+    "BANKNIFTY": {"token": 260105,  "name": "NIFTY BANK",    "lot": 15,  "strike_gap": 100},
+    "SENSEX":    {"token": 265,     "name": "SENSEX",        "lot": 10,  "strike_gap": 100},
 }
+
+INDIA_VIX_TOKEN = 264969  # NSE:INDIA VIX
+JODI_MARGIN_PER_LOT = 200000.0  # ₹2L per condor lot as user specified
+JODI_RISK_FREE_RATE = 6.5        # Annual %, standard for India
 
 
 @dataclass
@@ -415,7 +419,412 @@ STRATEGIES: Dict[str, Tuple[str, Callable]] = {
     "survivor":        ("Survivor (weekly straddle)",  _strategy_survivor),
     "expiry_trade":    ("Expiry Trade (RSI proxy)",    _strategy_expiry_trade),
     "covered_calls":   ("Covered Calls (weekly OTM)",  _strategy_covered_calls),
+    "jodi":            ("Jodi (NIFTY iron-condor, Mon/Fri entry)", None),  # handled separately
 }
+
+
+# ---------------------------------------------------------------------------
+# Jodi Strategy — NIFTY iron condor with Mon/Fri entry, Tue expiry
+# ---------------------------------------------------------------------------
+
+def _jodi_sl(sum_premium: float) -> float:
+    """Jodi SL rounding:
+      * last digit 1-5   → tens*10 + 5   (round UP to next X5)
+      * last digit 0,6-9 → (tens+1)*10 + 1 (jump to next-decade + 1)
+    """
+    s = int(round(sum_premium))
+    last = s % 10
+    base = s - last
+    if last in (1, 2, 3, 4, 5):
+        return float(base + 5)
+    return float(base + 11)
+
+
+def _bs_option_price(spot: float, strike: float, iv_pct: float, dte_days: float,
+                      option_type: str, r_pct: float = JODI_RISK_FREE_RATE) -> float:
+    """Black-Scholes price via mibian. `dte_days` is calendar days remaining."""
+    try:
+        import mibian
+    except ImportError:
+        return 0.0
+    dte = max(dte_days, 0.5)  # avoid zero-DTE math issues
+    bs = mibian.BS([spot, strike, r_pct, dte], volatility=max(iv_pct, 1.0))
+    px = bs.callPrice if option_type == "CE" else bs.putPrice
+    return max(0.05, float(px))
+
+
+def _nse_tuesday_expiries(start: date, end: date, holidays: set) -> List[date]:
+    """List of NIFTY weekly Tuesday expiries between start & end (holiday-adjusted to Monday)."""
+    d = start
+    out: List[date] = []
+    while d <= end + timedelta(days=7):
+        if d.weekday() == 1:  # Tuesday
+            expiry = d
+            if expiry in holidays:
+                expiry = expiry - timedelta(days=1)  # roll to Monday
+            if start <= expiry <= end:
+                out.append(expiry)
+        d += timedelta(days=1)
+    return out
+
+
+def _round_strike(price: float, gap: int) -> int:
+    return int(round(price / gap) * gap)
+
+
+class _JodiPosition:
+    """One live condor leg-set."""
+    def __init__(self, entry_date, spot, iv, expiry_date, gap, lots):
+        self.entry_date = entry_date
+        self.expiry_date = expiry_date
+        self.spot_at_entry = spot
+        self.iv_at_entry = iv
+        self.lots = lots
+        self.qty = lots * 65  # NIFTY lot
+
+        dte = max((expiry_date - entry_date).days, 1)
+        # On Tuesday (0-1 DTE) target strikes ≥250 pts OTM (premiums are low);
+        # otherwise standard 500-pt OTM target.
+        base_otm = 250 if dte <= 1 else 500
+        wing_extra = 500  # wings always 500 pts further OTM
+
+        self.short_pe_strike = _round_strike(spot - base_otm, gap)
+        self.short_ce_strike = _round_strike(spot + base_otm, gap)
+        self.long_pe_strike  = self.short_pe_strike - wing_extra
+        self.long_ce_strike  = self.short_ce_strike + wing_extra
+
+        self.short_pe_entry = _bs_option_price(spot, self.short_pe_strike, iv, dte, "PE")
+        self.short_ce_entry = _bs_option_price(spot, self.short_ce_strike, iv, dte, "CE")
+        self.long_pe_entry  = _bs_option_price(spot, self.long_pe_strike,  iv, dte, "PE")
+        self.long_ce_entry  = _bs_option_price(spot, self.long_ce_strike,  iv, dte, "CE")
+
+        self.sum_short = self.short_pe_entry + self.short_ce_entry
+        self.sl = _jodi_sl(self.sum_short)
+        self.target_short_sum = 0.20 * self.sum_short  # 80% decay target
+
+        self.short_pe_open = True
+        self.short_ce_open = True
+        self.realized = 0.0
+
+        self.log_entries: List[str] = [
+            f"[{entry_date}] Spot={spot:.0f} IV={iv:.1f}% DTE={dte}d "
+            f"SHORT PE {self.short_pe_strike}@{self.short_pe_entry:.1f} + "
+            f"CE {self.short_ce_strike}@{self.short_ce_entry:.1f}  "
+            f"BUY PE {self.long_pe_strike}@{self.long_pe_entry:.1f} + "
+            f"CE {self.long_ce_strike}@{self.long_ce_entry:.1f}  "
+            f"credit_sum={self.sum_short:.1f}  SL={self.sl:.0f}  target={self.target_short_sum:.1f}"
+        ]
+
+    def option_prices_at(self, spot, iv, dte):
+        pe = _bs_option_price(spot, self.short_pe_strike, iv, dte, "PE") if self.short_pe_open else 0.0
+        ce = _bs_option_price(spot, self.short_ce_strike, iv, dte, "CE") if self.short_ce_open else 0.0
+        return pe, ce
+
+    def is_fully_closed(self) -> bool:
+        return not self.short_pe_open and not self.short_ce_open
+
+
+def _jodi_run(kite: KiteConnect, start: date, end: date, capital: float) -> Tuple[List[Trade], List[Tuple[str, float]], List[str]]:
+    from datetime import datetime as _dt
+    lots = max(1, int(capital // JODI_MARGIN_PER_LOT))
+    if lots < 1:
+        raise ValueError(f"Capital ₹{capital:,.0f} < ₹2L margin required per condor lot.")
+    qty_per_leg = lots * 65
+
+    # Fetch NIFTY spot + India VIX daily candles.
+    spot_candles = _fetch_candles(kite, "NIFTY", start, end)
+    vix_data = kite.historical_data(INDIA_VIX_TOKEN,
+                                     _dt.combine(start, _dt.min.time()),
+                                     _dt.combine(end,   _dt.min.time()), "day")
+    vix_by_date = {c["date"].date(): float(c["close"]) for c in vix_data}
+    spot_by_date = {c["date"].date(): c for c in spot_candles}
+
+    # Build holiday set (basic — NSE holidays for this year via `holidays` pkg if available).
+    holidays_set: set = set()
+    try:
+        import holidays as _hol
+        for y in range(start.year, end.year + 1):
+            for d, _n in _hol.India(years=y).items():
+                holidays_set.add(d)
+    except Exception:
+        pass
+
+    trading_days = sorted(spot_by_date.keys())
+    if not trading_days:
+        raise ValueError("No NIFTY candles for the range.")
+
+    tuesday_expiries = _nse_tuesday_expiries(start, end + timedelta(days=7), holidays_set)
+    gap = int(INDEX_TOKENS["NIFTY"]["strike_gap"])
+
+    trades: List[Trade] = []
+    equity_curve: List[Tuple[str, float]] = []
+    equity = capital
+    log: List[str] = [f"NIFTY lot=65 · lots per condor={lots} · margin/lot=₹{JODI_MARGIN_PER_LOT:,.0f}"]
+    position: Optional[_JodiPosition] = None
+
+    def _next_expiry_after(d: date) -> Optional[date]:
+        for e in tuesday_expiries:
+            if e >= d:
+                return e
+        return None
+
+    for day in trading_days:
+        cndl = spot_by_date[day]
+        open_p, high_p, low_p, close_p = cndl["open"], cndl["high"], cndl["low"], cndl["close"]
+        weekday = day.weekday()  # Mon=0 ... Fri=4
+        iv = vix_by_date.get(day, 15.0)
+
+        # ---- Entry: Monday (0) or Friday (4) if no position open ----
+        if position is None and weekday in (0, 4):
+            expiry = _next_expiry_after(day + timedelta(days=1))  # next Tue expiry
+            if expiry is None:
+                equity_curve.append((day.isoformat(), equity))
+                continue
+            # Entry at ~9:30 → approximate with day's open.
+            position = _JodiPosition(day, open_p, iv, expiry, gap, lots)
+            log.extend(position.log_entries)
+
+        # ---- Manage open position for the day ----
+        if position is not None:
+            dte_days = max((position.expiry_date - day).days, 0)
+
+            # If today is expiry: settle at intrinsic value on close.
+            if day >= position.expiry_date:
+                # PE settles: max(0, K - S). CE settles: max(0, S - K).
+                pe_close = max(0.0, position.short_pe_strike - close_p) if position.short_pe_open else 0.0
+                ce_close = max(0.0, close_p - position.short_ce_strike) if position.short_ce_open else 0.0
+                long_pe_close = max(0.0, position.long_pe_strike - close_p)
+                long_ce_close = max(0.0, close_p - position.long_ce_strike)
+
+                pnl_pe = (position.short_pe_entry - pe_close) * qty_per_leg if position.short_pe_open else 0.0
+                pnl_ce = (position.short_ce_entry - ce_close) * qty_per_leg if position.short_ce_open else 0.0
+                pnl_long_pe = (long_pe_close - position.long_pe_entry) * qty_per_leg
+                pnl_long_ce = (long_ce_close - position.long_ce_entry) * qty_per_leg
+                total = pnl_pe + pnl_ce + pnl_long_pe + pnl_long_ce + position.realized
+                equity += total
+
+                if position.short_pe_open:
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_pe_entry, 2),
+                        exit_price=round(pe_close, 2), quantity=qty_per_leg,
+                        pnl=round(pnl_pe, 2),
+                        note=f"SHORT PE {position.short_pe_strike} · settled at expiry",
+                    ))
+                if position.short_ce_open:
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_ce_entry, 2),
+                        exit_price=round(ce_close, 2), quantity=qty_per_leg,
+                        pnl=round(pnl_ce, 2),
+                        note=f"SHORT CE {position.short_ce_strike} · settled at expiry",
+                    ))
+                trades.append(Trade(
+                    entry_date=position.entry_date.isoformat(),
+                    exit_date=day.isoformat(), direction="long",
+                    entry_price=round(position.long_pe_entry, 2),
+                    exit_price=round(long_pe_close, 2), quantity=qty_per_leg,
+                    pnl=round(pnl_long_pe, 2), note=f"LONG PE {position.long_pe_strike} · hedge wing",
+                ))
+                trades.append(Trade(
+                    entry_date=position.entry_date.isoformat(),
+                    exit_date=day.isoformat(), direction="long",
+                    entry_price=round(position.long_ce_entry, 2),
+                    exit_price=round(long_ce_close, 2), quantity=qty_per_leg,
+                    pnl=round(pnl_long_ce, 2), note=f"LONG CE {position.long_ce_strike} · hedge wing",
+                ))
+                log.append(f"[{day}] EXPIRY close={close_p:.0f}  net_condor_pnl=₹{total:,.0f}  equity=₹{equity:,.0f}")
+                position = None
+                equity_curve.append((day.isoformat(), equity))
+                continue
+
+            # Intraday: compute combined short premium at day's high and low.
+            pe_hi, ce_hi = position.option_prices_at(high_p, iv, dte_days)
+            pe_lo, ce_lo = position.option_prices_at(low_p,  iv, dte_days)
+            # PE goes UP when spot falls (low); CE goes UP when spot rises (high).
+            max_pe = max(pe_hi, pe_lo)   # PE peak = day's low spot
+            max_ce = max(ce_hi, ce_lo)   # CE peak = day's high spot
+            min_pe = min(pe_hi, pe_lo)   # PE trough = day's high spot
+            min_ce = min(ce_hi, ce_lo)   # CE trough = day's low spot
+            worst_sum = max_pe + max_ce
+            best_sum  = min_pe + min_ce
+            eod_pe, eod_ce = position.option_prices_at(close_p, iv, dte_days)
+
+            # ----- Check SL first (worst_sum > SL) -----
+            if worst_sum >= position.sl and (position.short_pe_open or position.short_ce_open):
+                # Determine which leg triggered SL — the one that's UP more relative to entry.
+                pe_gain = max_pe - position.short_pe_entry if position.short_pe_open else -1e9
+                ce_gain = max_ce - position.short_ce_entry if position.short_ce_open else -1e9
+                if pe_gain > ce_gain and position.short_pe_open:
+                    # Exit losing PE short at ~max_pe. Re-enter new PE short near surviving CE's LTP.
+                    exit_px = max_pe
+                    pnl = (position.short_pe_entry - exit_px) * qty_per_leg
+                    position.realized += pnl
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_pe_entry, 2),
+                        exit_price=round(exit_px, 2), quantity=qty_per_leg,
+                        pnl=round(pnl, 2),
+                        note=f"SL HIT · SHORT PE {position.short_pe_strike} · exit at ₹{exit_px:.1f}",
+                    ))
+                    position.short_pe_open = False
+                    log.append(f"[{day}] SL HIT PE side · exit₹{exit_px:.1f} · realised ₹{pnl:,.0f}")
+
+                    # Re-entry: find new PE strike whose BS price ≈ current surviving CE price.
+                    target_px = eod_ce
+                    new_strike = _find_pe_strike_for_price(close_p, target_px, iv, dte_days, gap)
+                    if new_strike:
+                        new_pe_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "PE")
+                        position.short_pe_strike = new_strike
+                        position.short_pe_entry = new_pe_entry
+                        position.short_pe_open = True
+                        # Recompute combined sum and SL for the surviving CE + new PE.
+                        position.sum_short = new_pe_entry + eod_ce
+                        position.sl = _jodi_sl(position.sum_short)
+                        log.append(
+                            f"[{day}] RE-ENTRY PE {new_strike}@{new_pe_entry:.1f} · "
+                            f"new sum={position.sum_short:.1f} · new SL={position.sl:.0f}"
+                        )
+                elif position.short_ce_open:
+                    exit_px = max_ce
+                    pnl = (position.short_ce_entry - exit_px) * qty_per_leg
+                    position.realized += pnl
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_ce_entry, 2),
+                        exit_price=round(exit_px, 2), quantity=qty_per_leg,
+                        pnl=round(pnl, 2),
+                        note=f"SL HIT · SHORT CE {position.short_ce_strike} · exit at ₹{exit_px:.1f}",
+                    ))
+                    position.short_ce_open = False
+                    log.append(f"[{day}] SL HIT CE side · exit₹{exit_px:.1f} · realised ₹{pnl:,.0f}")
+                    target_px = eod_pe
+                    new_strike = _find_ce_strike_for_price(close_p, target_px, iv, dte_days, gap)
+                    if new_strike:
+                        new_ce_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "CE")
+                        position.short_ce_strike = new_strike
+                        position.short_ce_entry = new_ce_entry
+                        position.short_ce_open = True
+                        position.sum_short = eod_pe + new_ce_entry
+                        position.sl = _jodi_sl(position.sum_short)
+                        log.append(
+                            f"[{day}] RE-ENTRY CE {new_strike}@{new_ce_entry:.1f} · "
+                            f"new sum={position.sum_short:.1f} · new SL={position.sl:.0f}"
+                        )
+
+            # ----- Check profit target (best_sum ≤ 20% of entry sum) -----
+            elif best_sum <= position.target_short_sum and (position.short_pe_open or position.short_ce_open):
+                exit_pe = min_pe
+                exit_ce = min_ce
+                pnl_pe = (position.short_pe_entry - exit_pe) * qty_per_leg if position.short_pe_open else 0.0
+                pnl_ce = (position.short_ce_entry - exit_ce) * qty_per_leg if position.short_ce_open else 0.0
+                total = pnl_pe + pnl_ce
+                position.realized += total
+                if position.short_pe_open:
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_pe_entry, 2),
+                        exit_price=round(exit_pe, 2), quantity=qty_per_leg,
+                        pnl=round(pnl_pe, 2),
+                        note=f"80% TARGET · SHORT PE {position.short_pe_strike} closed at ₹{exit_pe:.1f}",
+                    ))
+                if position.short_ce_open:
+                    trades.append(Trade(
+                        entry_date=position.entry_date.isoformat(),
+                        exit_date=day.isoformat(), direction="short",
+                        entry_price=round(position.short_ce_entry, 2),
+                        exit_price=round(exit_ce, 2), quantity=qty_per_leg,
+                        pnl=round(pnl_ce, 2),
+                        note=f"80% TARGET · SHORT CE {position.short_ce_strike} closed at ₹{exit_ce:.1f}",
+                    ))
+                position.short_pe_open = False
+                position.short_ce_open = False
+                # Close wings too at their current BS value.
+                long_pe_ltp = _bs_option_price(close_p, position.long_pe_strike, iv, dte_days, "PE")
+                long_ce_ltp = _bs_option_price(close_p, position.long_ce_strike, iv, dte_days, "CE")
+                pnl_lpe = (long_pe_ltp - position.long_pe_entry) * qty_per_leg
+                pnl_lce = (long_ce_ltp - position.long_ce_entry) * qty_per_leg
+                trades.append(Trade(
+                    entry_date=position.entry_date.isoformat(),
+                    exit_date=day.isoformat(), direction="long",
+                    entry_price=round(position.long_pe_entry, 2),
+                    exit_price=round(long_pe_ltp, 2), quantity=qty_per_leg,
+                    pnl=round(pnl_lpe, 2), note=f"LONG PE {position.long_pe_strike} · closed with condor",
+                ))
+                trades.append(Trade(
+                    entry_date=position.entry_date.isoformat(),
+                    exit_date=day.isoformat(), direction="long",
+                    entry_price=round(position.long_ce_entry, 2),
+                    exit_price=round(long_ce_ltp, 2), quantity=qty_per_leg,
+                    pnl=round(pnl_lce, 2), note=f"LONG CE {position.long_ce_strike} · closed with condor",
+                ))
+                equity += total + pnl_lpe + pnl_lce
+                log.append(f"[{day}] 80% TARGET HIT · net ₹{total + pnl_lpe + pnl_lce:,.0f}  equity=₹{equity:,.0f}")
+                position = None
+
+        # Mark-to-market equity for the day.
+        if position is not None:
+            dte_days = max((position.expiry_date - day).days, 0)
+            eod_pe, eod_ce = position.option_prices_at(close_p, iv, dte_days)
+            long_pe_ltp = _bs_option_price(close_p, position.long_pe_strike, iv, dte_days, "PE")
+            long_ce_ltp = _bs_option_price(close_p, position.long_ce_strike, iv, dte_days, "CE")
+            mtm = (
+                (position.short_pe_entry - eod_pe) * qty_per_leg * (1 if position.short_pe_open else 0)
+                + (position.short_ce_entry - eod_ce) * qty_per_leg * (1 if position.short_ce_open else 0)
+                + (long_pe_ltp - position.long_pe_entry) * qty_per_leg
+                + (long_ce_ltp - position.long_ce_entry) * qty_per_leg
+                + position.realized
+            )
+            equity_curve.append((day.isoformat(), equity + mtm))
+        else:
+            equity_curve.append((day.isoformat(), equity))
+
+    notes = [
+        f"NIFTY iron condor · {lots} lot(s) · ₹{JODI_MARGIN_PER_LOT:,.0f} margin/lot · qty/leg={qty_per_leg}",
+        "Entry: Monday (for that Tue expiry) & Friday (for next Tue expiry) at ~9:30 AM open.",
+        "Shorts ~500 pts OTM (250 pts on expiry-day re-entry). Wings 500 pts further OTM.",
+        "SL = combined short premium rounded UP: last-digit 1-5 → X5, else (X+1)1.",
+        "On SL hit → close losing short + wing kept intact → re-short at strike mirroring surviving side.",
+        "Exit on 80% decay of combined premium OR expiry settlement.",
+        "Premiums synthesised via Black-Scholes using NIFTY spot + India VIX (mibian).",
+    ]
+    return trades, equity_curve, notes + log[-80:]  # cap log to last 80 events
+
+
+def _find_pe_strike_for_price(spot: float, target_px: float, iv: float, dte: float, gap: int) -> Optional[int]:
+    """Find a PE strike whose BS price is closest to target_px."""
+    if target_px <= 0.5: return None
+    best_strike = None
+    best_diff = 1e9
+    center = _round_strike(spot, gap)
+    for k in range(center - 30 * gap, center + 5 * gap, gap):
+        if k <= 0: continue
+        px = _bs_option_price(spot, k, iv, dte, "PE")
+        diff = abs(px - target_px)
+        if diff < best_diff:
+            best_diff = diff
+            best_strike = k
+    return best_strike
+
+
+def _find_ce_strike_for_price(spot: float, target_px: float, iv: float, dte: float, gap: int) -> Optional[int]:
+    if target_px <= 0.5: return None
+    best_strike = None
+    best_diff = 1e9
+    center = _round_strike(spot, gap)
+    for k in range(center - 5 * gap, center + 30 * gap, gap):
+        if k <= 0: continue
+        px = _bs_option_price(spot, k, iv, dte, "CE")
+        diff = abs(px - target_px)
+        if diff < best_diff:
+            best_diff = diff
+            best_strike = k
+    return best_strike
 
 
 def run_backtest(
@@ -434,6 +843,14 @@ def run_backtest(
         raise ValueError("Start date must be before end date.")
 
     label, fn = STRATEGIES[strategy_key]
+
+    # Jodi is NIFTY-only and requires VIX + expiry calendar → dedicated path.
+    if strategy_key == "jodi":
+        if index != "NIFTY":
+            raise ValueError("Jodi strategy is currently NIFTY-only.")
+        trades, equity_curve, notes = _jodi_run(kite, start, end, capital)
+        return _finalise(trades, capital, equity_curve, notes, label, index, start, end)
+
     candles = _fetch_candles(kite, index, start, end)
     if not candles:
         raise ValueError("No candle data returned by Kite for this range.")
