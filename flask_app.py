@@ -66,9 +66,9 @@ _handler.setFormatter(_ISTFormatter("%(asctime)s [%(levelname)s] %(name)s: %(mes
 logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Base settings
-PORT = 5010
-HOST = "127.0.0.1"
+# Base settings (overridable via env for hosted preview environments)
+PORT = int(os.environ.get("FLASK_APP_PORT", "5010"))
+HOST = os.environ.get("FLASK_APP_HOST", "127.0.0.1")
 
 serializer = lambda obj: isinstance(obj, (date, datetime, Decimal)) and str(obj)  # noqa
 

@@ -1,0 +1,9 @@
+{
+  "name": "ui-trading-system-frontend-shim",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shim that hands the supervisor 'frontend' slot over to the Flask app.",
+  "scripts": {
+    "start": "cd /app && FLASK_APP_HOST=0.0.0.0 FLASK_APP_PORT=3000 /root/.venv/bin/python3 flask_app.py"
+  }
+}
