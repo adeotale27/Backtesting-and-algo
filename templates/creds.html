@@ -166,6 +166,23 @@
         details summary:hover { color: var(--text); }
         details p { margin-top: 10px; color: var(--dim); line-height: 1.6; }
         code { font-family: 'JetBrains Mono', monospace; background: #1f2937; padding: 1px 6px; border-radius: 4px; color: var(--accent); }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tab {
+            padding: 10px 16px; background: transparent; border: none;
+            color: var(--dim); cursor: pointer; font-family: inherit;
+            font-size: 13px; font-weight: 600; border-radius: 8px 8px 0 0;
+            border-bottom: 2px solid transparent; margin-bottom: -1px;
+            transition: color .15s, background .15s;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { background: #0a0f1c; color: var(--text); border-bottom-color: var(--accent); }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .hint { font-size: 11px; color: var(--dim); margin-top: 6px; font-family: 'Inter', sans-serif; }
+        .hint a { color: var(--accent); text-decoration: none; }
+        .hint a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -240,51 +257,79 @@
     <form method="POST" action="/creds">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
         <div class="card">
-            <h2>Update credentials</h2>
-            <p class="help">Fields left blank keep their existing values.</p>
+            <h2>Zerodha KiteConnect credentials</h2>
+            <p class="help">Enter your Kite API key and daily access token to fetch live NSE/BSE data. Access tokens expire every trading day around 6 AM IST.</p>
 
-            <div class="grid-2">
-                <div class="row">
-                    <label for="api_key">API key</label>
-                    <input type="text" id="api_key" name="api_key" placeholder="{{ status.api_key_display }}" data-testid="creds-api-key-input" autocomplete="off">
+            <div class="tabs" data-testid="creds-tabs">
+                <button type="button" class="tab active" data-tab="access-tab" onclick="switchTab('access-tab', this)" data-testid="tab-access">I have access_token</button>
+                <button type="button" class="tab" data-tab="request-tab" onclick="switchTab('request-tab', this)" data-testid="tab-request">Generate from request_token</button>
+            </div>
+
+            <div class="tab-body">
+                <div id="access-tab" class="tab-panel active">
+                    <div class="grid-2">
+                        <div class="row">
+                            <label for="api_key_a">API key</label>
+                            <input type="text" id="api_key_a" name="api_key" placeholder="e.g. xxxxxxxxxxxxxxxx" value="" data-testid="creds-api-key-input" autocomplete="off">
+                            <div class="hint">Current: <code>{{ status.api_key_display }}</code> {% if status.api_key_set %}(saved){% endif %}</div>
+                        </div>
+                        <div class="row">
+                            <label for="api_secret_a">API secret</label>
+                            <input type="password" id="api_secret_a" name="api_secret" placeholder="unchanged" data-testid="creds-api-secret-input" autocomplete="off">
+                            <div class="hint">{% if status.api_secret_set %}Saved — leave blank to keep{% else %}Not set{% endif %}</div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <label for="access_token_a">Access token</label>
+                        <input type="text" id="access_token_a" name="access_token" placeholder="daily access_token" data-testid="creds-access-token-input" autocomplete="off">
+                        <div class="hint">Current: <code>{{ status.access_token_display }}</code>. <a href="https://kite.trade/docs/connect/v3/user/" target="_blank">How to generate access token ↗</a></div>
+                    </div>
                 </div>
-                <div class="row">
-                    <label for="api_secret">API secret</label>
-                    <input type="password" id="api_secret" name="api_secret" placeholder="unchanged" data-testid="creds-api-secret-input" autocomplete="off">
+
+                <div id="request-tab" class="tab-panel">
+                    <div class="grid-2">
+                        <div class="row">
+                            <label for="api_key_r">API key</label>
+                            <input type="text" id="api_key_r" name="api_key" placeholder="e.g. xxxxxxxxxxxxxxxx" value="" autocomplete="off">
+                        </div>
+                        <div class="row">
+                            <label for="api_secret_r">API secret</label>
+                            <input type="password" id="api_secret_r" name="api_secret" placeholder="unchanged" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <label for="request_token_r">Request token <span style="text-transform:none;color:var(--dim);font-weight:400;">(one-time, from Kite login redirect)</span></label>
+                        <input type="text" id="request_token_r" name="request_token" placeholder="pasted from redirect URL" data-testid="creds-request-token-input" autocomplete="off">
+                        <div class="hint">
+                            Visit <code>https://kite.zerodha.com/connect/login?v=3&amp;api_key=YOUR_API_KEY</code>, log in, then paste the <code>request_token=…</code> value from the redirect URL. We'll exchange it for an access token automatically.
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="grid-2">
-                <div class="row">
-                    <label for="request_token">Request token <span style="text-transform:none;color:var(--dim);font-weight:400;">(one-time, from Kite login redirect)</span></label>
-                    <input type="text" id="request_token" name="request_token" placeholder="will be exchanged for an access token" data-testid="creds-request-token-input" autocomplete="off">
-                </div>
-                <div class="row">
-                    <label for="access_token">Access token <span style="text-transform:none;color:var(--dim);font-weight:400;">(direct)</span></label>
-                    <input type="text" id="access_token" name="access_token" placeholder="unchanged" data-testid="creds-access-token-input" autocomplete="off">
+            <div class="actions" style="justify-content: space-between;">
+                <button type="submit" name="action" value="demo" class="btn-secondary" data-testid="creds-use-demo-btn" formnovalidate>Use Demo data</button>
+                <div style="display:flex; gap:12px;">
+                    <a href="/" class="btn btn-secondary" data-testid="creds-open-dashboard-btn">Open Dashboard →</a>
+                    <button type="submit" name="action" value="clear_token" class="btn-danger" data-testid="creds-clear-btn" onclick="return confirm('Clear the stored access token?');">Clear Token</button>
+                    <button type="submit" name="action" value="save" class="btn-primary" data-testid="creds-save-btn">Save &amp; Go Live</button>
                 </div>
             </div>
-
-            <div class="actions">
-                <button type="submit" name="action" value="save" class="btn-primary" data-testid="creds-save-btn">Save &amp; Apply</button>
-                <a href="/" class="btn btn-secondary" data-testid="creds-open-dashboard-btn">Open Dashboard →</a>
-                <button type="submit" name="action" value="clear_token" class="btn-danger" data-testid="creds-clear-btn" onclick="return confirm('Clear the stored access token?');">Clear Access Token</button>
-            </div>
-
-            <details>
-                <summary>How do I get these values?</summary>
-                <p>
-                    1. <b>API key / secret</b> — from your Kite Connect app at <code>developers.kite.trade</code>.<br>
-                    2. <b>Access token</b> (fastest) — if you already have one, paste it here.<br>
-                    3. <b>Request token</b> — visit <code>https://kite.zerodha.com/connect/login?v=3&amp;api_key=YOUR_API_KEY</code>, log in with your Zerodha account, and the <code>request_token=…</code> query param on the redirect URL is your one-time token. Paste it here and it will be exchanged for a fresh access token automatically.
-                </p>
-            </details>
         </div>
     </form>
 
     <div class="footer">
-        <a href="/">Dashboard</a> · <a href="/api-monitor">API Monitor</a> · <a href="/disclaimer">Disclaimer</a>
+        <a href="/">Dashboard</a> · <a href="/backtest">Backtest</a> · <a href="/api-monitor">API Monitor</a> · <a href="/disclaimer">Disclaimer</a>
     </div>
 </div>
+
+<script>
+function switchTab(id, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(id).classList.add('active');
+}
+</script>
 </body>
 </html>

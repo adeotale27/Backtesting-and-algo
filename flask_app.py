@@ -242,6 +242,10 @@ if _SECURITY_EXTENSIONS_AVAILABLE:
         default_limits=[],
         storage_uri="memory://",
     )
+    # These JSON API endpoints are called from in-app JS (they include the
+    # cookie session for auth) but do not carry a CSRF token header — exempt
+    # them from CSRF so the fetch() calls succeed.
+    _csrf_exempt_view_funcs = ("backtest_run",)
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(error: "CSRFError"):  # noqa: ANN201 - Flask handler
@@ -670,6 +674,30 @@ def creds_page():
                 pass
             flash = "Access token cleared."
             flash_type = "info"
+        elif action == "demo":
+            # Demo mode: force paper trading, clear access token so the app
+            # runs without live Kite market data. Modules that need live data
+            # will show empty/simulated results.
+            session.pop("access_token", None)
+            try:
+                instrument_cache.save_kite_token("")
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                cfg = configparser.ConfigParser()
+                cfg.read(config_path)
+                if "safety" not in cfg:
+                    cfg["safety"] = {}
+                cfg["safety"]["live_trading"] = "false"
+                with open(config_path, "w") as fh:
+                    cfg.write(fh)
+                import common_lib
+                common_lib.live_trading_enabled = False
+            except Exception:  # noqa: BLE001
+                pass
+            flash = ("📄 Switched to <b>Demo</b> mode — paper trading, no live "
+                     "Kite data. Enter creds and click Save &amp; Go Live when ready.")
+            flash_type = "warn"
         else:
             new_key    = (form.get("api_key") or "").strip()
             new_secret = (form.get("api_secret") or "").strip()
@@ -843,6 +871,77 @@ def creds_paper_capital():
         f"Paper trading capital set to ₹{capital:,}.",
         "ok",
     )
+
+
+# ============================================================================
+# Backtest module
+# ============================================================================
+
+import backtest_engine
+
+@app.route("/backtest")
+def backtest_page():
+    """Historical backtest UI under Analysis & Research."""
+    from datetime import date as _date, timedelta as _td
+    strategies = [(k, v[0]) for k, v in backtest_engine.STRATEGIES.items()]
+    default_end = _date.today()
+    default_start = default_end - _td(days=30)
+    return render_template(
+        "backtest.html",
+        strategies=strategies,
+        default_start=default_start.isoformat(),
+        default_end=default_end.isoformat(),
+    )
+
+
+@app.route("/api/backtest/run", methods=["POST"])
+def backtest_run():
+    """Execute a backtest and return the results as JSON."""
+    from datetime import date as _date
+    import time
+
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    try:
+        strategy = (payload.get("strategy") or "").strip()
+        index    = (payload.get("index") or "NIFTY").strip().upper()
+        start    = _date.fromisoformat((payload.get("start") or "").strip())
+        end      = _date.fromisoformat((payload.get("end") or "").strip())
+        capital  = float(payload.get("capital") or 5000000)
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": f"Invalid parameters: {exc}"}), 400
+
+    if capital < 10000:
+        return jsonify({"error": "Capital must be at least ₹10,000."}), 400
+
+    kite = get_kite_client()
+    if "access_token" in session:
+        kite.set_access_token(session["access_token"])
+    elif _get_restored_kite_token():
+        kite.set_access_token(_get_restored_kite_token())
+    else:
+        return jsonify({"error": "No Kite access token — configure at /creds."}), 401
+
+    t0 = time.time()
+    try:
+        result = backtest_engine.run_backtest(kite, strategy, index, start, end, capital)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Backtest failed")
+        return jsonify({"error": f"Backtest failed: {exc}"}), 500
+
+    resp = result.to_dict()
+    resp["_elapsed_ms"] = int((time.time() - t0) * 1000)
+    return jsonify(resp)
+
+
+# Exempt the backtest API from CSRF — it's called via fetch() and is
+# session-authenticated but does not include the CSRF token header.
+if _SECURITY_EXTENSIONS_AVAILABLE and csrf is not None:
+    csrf.exempt(backtest_run)
+
+
+# ============================================================================
 
 
 def get_token_for_script(user_provided_token=None):
