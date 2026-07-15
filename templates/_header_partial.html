@@ -58,13 +58,15 @@
     padding: 4px 12px;
     border-radius: 12px;
     border: none;
-    background: linear-gradient(135deg, #ff6b35, #f7931e);
-    color: white;
+    background: linear-gradient(135deg, #22d3ee, #06b6d4);
+    color: #032025;
     cursor: pointer;
     white-space: nowrap;
+    letter-spacing: 0.02em;
   }
   #app-header-connect-btn:hover {
     opacity: 0.85;
+    filter: brightness(1.1);
   }
   #app-header-bell-wrapper {
     position: relative;
@@ -354,7 +356,7 @@
     Trading System
   </a>
   <div class="header-right">
-    <span id="app-header-mode-badge" style="display:none; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px; white-space:nowrap;"></span>
+    <a href="/creds" id="app-header-mode-badge" style="display:none; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px; white-space:nowrap; text-decoration:none; cursor:pointer;" title="Click to open Paper / Live mode and Kite credentials" data-testid="header-mode-badge"></a>
     <span id="app-header-session-badge">⏳ Checking...</span>
     
     <div id="app-header-modules-btn" title="Switch Module" onclick="appHeaderToggleModulesPanel()">
@@ -376,10 +378,18 @@
       </div>
     </div>
 
-    <button id="app-header-connect-btn" onclick="appHeaderConnectKite()">Connect Kite</button>
+    <a href="/creds" id="app-header-connect-btn" style="text-decoration:none; display:inline-block;" data-testid="header-connect-kite-btn">Kite / Paper Setup</a>
     <div id="app-header-actions-btn" title="Quick Actions" onclick="appHeaderToggleActionsPanel()">
       <i id="app-header-actions-icon" class="fas fa-bolt"></i>
       <div id="app-header-actions-panel">
+        <div class="actions-section-header">Setup</div>
+        <a href="/creds" class="actions-item" style="text-decoration:none;" data-testid="actions-menu-creds">
+          <i class="fas fa-key"></i> Kite Creds / Paper Mode
+        </a>
+        <a href="/backtest" class="actions-item" style="text-decoration:none;" data-testid="actions-menu-backtest">
+          <i class="fas fa-flask"></i> Backtest
+        </a>
+        <div class="actions-divider"></div>
         <div class="actions-section-header">Instruments</div>
         <div class="actions-item" onclick="appHeaderSyncInstruments(event)">
           <i class="fas fa-sync-alt"></i> Sync Instruments
@@ -428,7 +438,10 @@
         if (data.authenticated) {
           badge.textContent = '🟢 Connected';
           badge.className = 'connected';
-          btn.style.display = 'none';
+          // Keep the button visible — it is now the entry point to /creds
+          // (Paper/Live mode + credential management) instead of an OAuth
+          // popup, so we want it available even after connecting.
+          btn.style.display = 'inline-block';
         } else {
           badge.textContent = '⚠ Disconnected';
           badge.className = 'disconnected';
