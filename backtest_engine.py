@@ -499,7 +499,9 @@ class _JodiPosition:
         self.long_ce_entry  = _bs_option_price(spot, self.long_ce_strike,  iv, dte, "CE")
 
         self.sum_short = self.short_pe_entry + self.short_ce_entry
-        self.sl = _jodi_sl(self.sum_short)
+        # Per-leg SL — same value for both legs, computed from the sum rounding.
+        # When either short leg's LTP crosses this level, THAT leg (only) stops.
+        self.per_leg_sl = _jodi_sl(self.sum_short)
         self.target_short_sum = 0.20 * self.sum_short  # 80% decay target
 
         self.short_pe_open = True
@@ -512,7 +514,7 @@ class _JodiPosition:
             f"CE {self.short_ce_strike}@{self.short_ce_entry:.1f}  "
             f"BUY PE {self.long_pe_strike}@{self.long_pe_entry:.1f} + "
             f"CE {self.long_ce_strike}@{self.long_ce_entry:.1f}  "
-            f"credit_sum={self.sum_short:.1f}  SL={self.sl:.0f}  target={self.target_short_sum:.1f}"
+            f"sum={self.sum_short:.1f} → SL/leg=₹{self.per_leg_sl:.0f}  target/leg=₹{self.target_short_sum/2:.1f}"
         ]
 
     def option_prices_at(self, spot, iv, dte):
@@ -640,26 +642,22 @@ def _jodi_run(kite: KiteConnect, start: date, end: date, capital: float) -> Tupl
                 equity_curve.append((day.isoformat(), equity))
                 continue
 
-            # Intraday: compute combined short premium at day's high and low.
-            pe_hi, ce_hi = position.option_prices_at(high_p, iv, dte_days)
-            pe_lo, ce_lo = position.option_prices_at(low_p,  iv, dte_days)
-            # PE goes UP when spot falls (low); CE goes UP when spot rises (high).
-            max_pe = max(pe_hi, pe_lo)   # PE peak = day's low spot
-            max_ce = max(ce_hi, ce_lo)   # CE peak = day's high spot
-            min_pe = min(pe_hi, pe_lo)   # PE trough = day's high spot
-            min_ce = min(ce_hi, ce_lo)   # CE trough = day's low spot
-            worst_sum = max_pe + max_ce
-            best_sum  = min_pe + min_ce
-            eod_pe, eod_ce = position.option_prices_at(close_p, iv, dte_days)
+            # ----- Per-leg SL check: each short's LTP vs per_leg_sl -----
+            # Loop to allow the OTHER side to also SL out later in the day
+            # after a first SL + re-entry (rare but possible on high-vol days).
+            for _iter in range(3):
+                pe_hi, ce_hi = position.option_prices_at(high_p, iv, dte_days)
+                pe_lo, ce_lo = position.option_prices_at(low_p,  iv, dte_days)
+                max_pe = max(pe_hi, pe_lo)   # PE peak = day's low spot
+                max_ce = max(ce_hi, ce_lo)   # CE peak = day's high spot
+                eod_pe, eod_ce = position.option_prices_at(close_p, iv, dte_days)
 
-            # ----- Check SL first (worst_sum > SL) -----
-            if worst_sum >= position.sl and (position.short_pe_open or position.short_ce_open):
-                # Determine which leg triggered SL — the one that's UP more relative to entry.
-                pe_gain = max_pe - position.short_pe_entry if position.short_pe_open else -1e9
-                ce_gain = max_ce - position.short_ce_entry if position.short_ce_open else -1e9
-                if pe_gain > ce_gain and position.short_pe_open:
-                    # Exit losing PE short at ~max_pe. Re-enter new PE short near surviving CE's LTP.
-                    exit_px = max_pe
+                stopped_this_iter = False
+
+                # ---- PE leg SL ----
+                if position.short_pe_open and max_pe >= position.per_leg_sl:
+                    # Exit at SL price + small slippage buffer of 2%.
+                    exit_px = position.per_leg_sl * 1.02
                     pnl = (position.short_pe_entry - exit_px) * qty_per_leg
                     position.realized += pnl
                     trades.append(Trade(
@@ -668,28 +666,35 @@ def _jodi_run(kite: KiteConnect, start: date, end: date, capital: float) -> Tupl
                         entry_price=round(position.short_pe_entry, 2),
                         exit_price=round(exit_px, 2), quantity=qty_per_leg,
                         pnl=round(pnl, 2),
-                        note=f"SL HIT · SHORT PE {position.short_pe_strike} · exit at ₹{exit_px:.1f}",
+                        note=f"SL HIT · SHORT PE {position.short_pe_strike} · SL=₹{position.per_leg_sl:.0f}",
                     ))
+                    log.append(
+                        f"[{day}] SL HIT PE {position.short_pe_strike} · "
+                        f"exit ₹{exit_px:.1f} · realised ₹{pnl:,.0f}"
+                    )
                     position.short_pe_open = False
-                    log.append(f"[{day}] SL HIT PE side · exit₹{exit_px:.1f} · realised ₹{pnl:,.0f}")
 
-                    # Re-entry: find new PE strike whose BS price ≈ current surviving CE price.
-                    target_px = eod_ce
-                    new_strike = _find_pe_strike_for_price(close_p, target_px, iv, dte_days, gap)
-                    if new_strike:
-                        new_pe_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "PE")
-                        position.short_pe_strike = new_strike
-                        position.short_pe_entry = new_pe_entry
-                        position.short_pe_open = True
-                        # Recompute combined sum and SL for the surviving CE + new PE.
-                        position.sum_short = new_pe_entry + eod_ce
-                        position.sl = _jodi_sl(position.sum_short)
-                        log.append(
-                            f"[{day}] RE-ENTRY PE {new_strike}@{new_pe_entry:.1f} · "
-                            f"new sum={position.sum_short:.1f} · new SL={position.sl:.0f}"
-                        )
-                elif position.short_ce_open:
-                    exit_px = max_ce
+                    # Re-entry: new PE short at strike near surviving CE's LTP.
+                    if position.short_ce_open:
+                        target_px = eod_ce
+                        new_strike = _find_pe_strike_for_price(close_p, target_px, iv, dte_days, gap)
+                        if new_strike:
+                            new_pe_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "PE")
+                            position.short_pe_strike = new_strike
+                            position.short_pe_entry = new_pe_entry
+                            position.short_pe_open = True
+                            position.sum_short = new_pe_entry + eod_ce
+                            position.per_leg_sl = _jodi_sl(position.sum_short)
+                            position.target_short_sum = 0.20 * position.sum_short
+                            log.append(
+                                f"[{day}] RE-ENTRY PE {new_strike}@{new_pe_entry:.1f} · "
+                                f"new sum={position.sum_short:.1f} · new SL/leg=₹{position.per_leg_sl:.0f}"
+                            )
+                            stopped_this_iter = True
+
+                # ---- CE leg SL ----
+                if position.short_ce_open and max_ce >= position.per_leg_sl:
+                    exit_px = position.per_leg_sl * 1.02
                     pnl = (position.short_ce_entry - exit_px) * qty_per_leg
                     position.realized += pnl
                     trades.append(Trade(
@@ -698,28 +703,39 @@ def _jodi_run(kite: KiteConnect, start: date, end: date, capital: float) -> Tupl
                         entry_price=round(position.short_ce_entry, 2),
                         exit_price=round(exit_px, 2), quantity=qty_per_leg,
                         pnl=round(pnl, 2),
-                        note=f"SL HIT · SHORT CE {position.short_ce_strike} · exit at ₹{exit_px:.1f}",
+                        note=f"SL HIT · SHORT CE {position.short_ce_strike} · SL=₹{position.per_leg_sl:.0f}",
                     ))
+                    log.append(
+                        f"[{day}] SL HIT CE {position.short_ce_strike} · "
+                        f"exit ₹{exit_px:.1f} · realised ₹{pnl:,.0f}"
+                    )
                     position.short_ce_open = False
-                    log.append(f"[{day}] SL HIT CE side · exit₹{exit_px:.1f} · realised ₹{pnl:,.0f}")
-                    target_px = eod_pe
-                    new_strike = _find_ce_strike_for_price(close_p, target_px, iv, dte_days, gap)
-                    if new_strike:
-                        new_ce_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "CE")
-                        position.short_ce_strike = new_strike
-                        position.short_ce_entry = new_ce_entry
-                        position.short_ce_open = True
-                        position.sum_short = eod_pe + new_ce_entry
-                        position.sl = _jodi_sl(position.sum_short)
-                        log.append(
-                            f"[{day}] RE-ENTRY CE {new_strike}@{new_ce_entry:.1f} · "
-                            f"new sum={position.sum_short:.1f} · new SL={position.sl:.0f}"
-                        )
 
-            # ----- Check profit target (best_sum ≤ 20% of entry sum) -----
-            elif best_sum <= position.target_short_sum and (position.short_pe_open or position.short_ce_open):
-                exit_pe = min_pe
-                exit_ce = min_ce
+                    if position.short_pe_open:
+                        target_px = eod_pe
+                        new_strike = _find_ce_strike_for_price(close_p, target_px, iv, dte_days, gap)
+                        if new_strike:
+                            new_ce_entry = _bs_option_price(close_p, new_strike, iv, dte_days, "CE")
+                            position.short_ce_strike = new_strike
+                            position.short_ce_entry = new_ce_entry
+                            position.short_ce_open = True
+                            position.sum_short = eod_pe + new_ce_entry
+                            position.per_leg_sl = _jodi_sl(position.sum_short)
+                            position.target_short_sum = 0.20 * position.sum_short
+                            log.append(
+                                f"[{day}] RE-ENTRY CE {new_strike}@{new_ce_entry:.1f} · "
+                                f"new sum={position.sum_short:.1f} · new SL/leg=₹{position.per_leg_sl:.0f}"
+                            )
+                            stopped_this_iter = True
+
+                if not stopped_this_iter:
+                    break
+
+            # ----- Check profit target (both eod prices low → 80% decay) -----
+            best_sum = eod_pe + eod_ce
+            if best_sum <= position.target_short_sum and (position.short_pe_open or position.short_ce_open):
+                exit_pe = eod_pe
+                exit_ce = eod_ce
                 pnl_pe = (position.short_pe_entry - exit_pe) * qty_per_leg if position.short_pe_open else 0.0
                 pnl_ce = (position.short_ce_entry - exit_ce) * qty_per_leg if position.short_ce_open else 0.0
                 total = pnl_pe + pnl_ce
