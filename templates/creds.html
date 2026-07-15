@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kite Credentials</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0f1a;
+            --panel: #111827;
+            --panel-2: #0f172a;
+            --border: #1f2937;
+            --accent: #22d3ee;
+            --accent-hover: #06b6d4;
+            --text: #e5e7eb;
+            --dim: #94a3b8;
+            --ok: #22c55e;
+            --err: #f43f5e;
+            --warn: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(1200px 600px at 10% -10%, #0e1626 0%, transparent 60%),
+                        radial-gradient(1000px 500px at 110% 110%, #0d1a1f 0%, transparent 55%),
+                        var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 40px 24px;
+        }
+        .wrap { max-width: 880px; margin: 0 auto; }
+        .brand {
+            display: flex; align-items: baseline; gap: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+            margin-bottom: 6px;
+            letter-spacing: -0.02em;
+        }
+        .brand h1 { font-size: 28px; font-weight: 700; }
+        .brand .badge {
+            font-size: 11px; padding: 3px 10px;
+            border: 1px solid var(--border); border-radius: 999px;
+            color: var(--dim);
+            {% if dry_run %}background: rgba(245,158,11,0.08); color: var(--warn); border-color: rgba(245,158,11,0.3);{% else %}background: rgba(244,63,94,0.08); color: var(--err); border-color: rgba(244,63,94,0.3);{% endif %}
+        }
+        .sub { color: var(--dim); margin-bottom: 32px; font-size: 14px; }
+        .card {
+            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 28px 32px;
+            margin-bottom: 20px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+        }
+        .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+        .card p.help { color: var(--dim); font-size: 13px; margin-bottom: 20px; }
+        label {
+            display: block; font-size: 12px; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--dim); margin-bottom: 8px;
+            font-weight: 600;
+        }
+        input[type=text], input[type=password] {
+            width: 100%; padding: 12px 14px;
+            background: #0a0f1c; color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,211,238,0.1); }
+        .row { margin-bottom: 18px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+        .actions { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+        button, .btn {
+            padding: 11px 22px; font-size: 14px; font-weight: 600;
+            border-radius: 8px; border: none; cursor: pointer;
+            font-family: inherit;
+            transition: transform .06s, background .15s;
+        }
+        .btn-primary { background: var(--accent); color: #032025; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+        button:active { transform: translateY(1px); }
+        .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .flash.ok  { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+        .flash.err { background: rgba(244,63,94,0.08); border: 1px solid rgba(244,63,94,0.3); color: #fda4af; }
+        .flash.info{ background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.25); color: #a5f3fc; }
+        .status-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+            font-family: 'JetBrains Mono', monospace; font-size: 12px;
+        }
+        .status-grid .cell {
+            background: #0a0f1c; border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px;
+        }
+        .status-grid .cell .k { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 4px; }
+        .status-grid .cell .v { color: var(--text); word-break: break-all; }
+        .status-grid .cell .v.ok { color: var(--ok); }
+        .status-grid .cell .v.err { color: var(--err); }
+        .footer {
+            text-align: center; color: var(--dim); font-size: 12px;
+            margin-top: 24px;
+        }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .divider { height: 1px; background: var(--border); margin: 20px 0; }
+        details {
+            background: #0a0f1c; border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px; margin-top: 12px;
+            font-size: 13px;
+        }
+        details summary { cursor: pointer; color: var(--dim); font-weight: 500; }
+        details summary:hover { color: var(--text); }
+        details p { margin-top: 10px; color: var(--dim); line-height: 1.6; }
+        code { font-family: 'JetBrains Mono', monospace; background: #1f2937; padding: 1px 6px; border-radius: 4px; color: var(--accent); }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="brand">
+        <h1>kite-creds</h1>
+        <span class="badge">{% if dry_run %}DRY-RUN{% else %}LIVE{% endif %}</span>
+    </div>
+    <div class="sub">Paste your Zerodha Kite Connect credentials below. They persist on disk and are re-applied on every restart.</div>
+
+    {% if flash %}
+    <div class="flash {{ flash_type }}">{{ flash|safe }}</div>
+    {% endif %}
+
+    <div class="card">
+        <h2>Current status</h2>
+        <p class="help">Live health of the Kite connection.</p>
+        <div class="status-grid">
+            <div class="cell"><div class="k">API key</div><div class="v {% if status.api_key_set %}ok{% else %}err{% endif %}">{{ status.api_key_display }}</div></div>
+            <div class="cell"><div class="k">API secret</div><div class="v {% if status.api_secret_set %}ok{% else %}err{% endif %}">{{ status.api_secret_display }}</div></div>
+            <div class="cell"><div class="k">Access token</div><div class="v {% if status.access_token_set %}ok{% else %}err{% endif %}">{{ status.access_token_display }}</div></div>
+        </div>
+        {% if status.probe_ok %}
+        <div class="flash ok" style="margin-top:16px;">Kite session probe passed. Profile: <b>{{ status.probe_name }}</b> ({{ status.probe_user_id }})</div>
+        {% elif status.probe_error %}
+        <div class="flash err" style="margin-top:16px;">Kite session probe failed: {{ status.probe_error }}</div>
+        {% endif %}
+    </div>
+
+    <form method="POST" action="/creds">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+        <div class="card">
+            <h2>Update credentials</h2>
+            <p class="help">Fields left blank keep their existing values.</p>
+
+            <div class="grid-2">
+                <div class="row">
+                    <label for="api_key">API key</label>
+                    <input type="text" id="api_key" name="api_key" placeholder="{{ status.api_key_display }}" data-testid="creds-api-key-input" autocomplete="off">
+                </div>
+                <div class="row">
+                    <label for="api_secret">API secret</label>
+                    <input type="password" id="api_secret" name="api_secret" placeholder="unchanged" data-testid="creds-api-secret-input" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="row">
+                    <label for="request_token">Request token <span style="text-transform:none;color:var(--dim);font-weight:400;">(from Kite login redirect — optional)</span></label>
+                    <input type="text" id="request_token" name="request_token" placeholder="one-time — will be exchanged for an access token" data-testid="creds-request-token-input" autocomplete="off">
+                </div>
+                <div class="row">
+                    <label for="access_token">Access token <span style="text-transform:none;color:var(--dim);font-weight:400;">(direct)</span></label>
+                    <input type="text" id="access_token" name="access_token" placeholder="unchanged" data-testid="creds-access-token-input" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="actions">
+                <button type="submit" name="action" value="save" class="btn-primary" data-testid="creds-save-btn">Save &amp; Apply</button>
+                <a href="/" class="btn btn-secondary" data-testid="creds-open-dashboard-btn">Open Dashboard →</a>
+                <button type="submit" name="action" value="clear_token" class="btn-secondary" data-testid="creds-clear-btn" onclick="return confirm('Clear the stored access token?');">Clear Access Token</button>
+            </div>
+
+            <details>
+                <summary>How do I get these values?</summary>
+                <p>
+                    1. <b>API key / secret</b> — from your Kite Connect app at <code>developers.kite.trade</code>.<br>
+                    2. <b>Access token</b> (fastest) — if you already have one, paste it here.<br>
+                    3. <b>Request token</b> — visit <code>https://kite.zerodha.com/connect/login?v=3&amp;api_key=YOUR_API_KEY</code>, log in with your Zerodha account, and the <code>request_token=…</code> query param on the redirect URL is your one-time token. Paste it here and it will be exchanged for a fresh access token automatically.
+                </p>
+            </details>
+        </div>
+    </form>
+
+    <div class="footer">
+        <a href="/">Dashboard</a> · <a href="/api-monitor">API Monitor</a> · <a href="/disclaimer">Disclaimer</a>
+    </div>
+</div>
+</body>
+</html>

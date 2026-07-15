@@ -416,10 +416,21 @@ def enforce_auth():
         return
 
     if 'app_authenticated' not in session:
-        # Return JSON 401 for API/XHR calls instead of an HTML login redirect.
-        if request.path.startswith("/api/"):
-            return jsonify({"error": "Authentication required"}), 401
-        return redirect(url_for('app_login', next=request.url))
+        # GATEKEEPER BYPASS: this deployment auto-authenticates every session.
+        # The custom /creds screen manages Kite credentials directly, so the
+        # HTML gatekeeper login is skipped entirely.
+        session['app_authenticated'] = True
+        session.permanent = True
+
+    # Auto-restore access_token into the session from the persisted DB store
+    # so the user does not have to reconnect after a pod restart / new tab.
+    if 'access_token' not in session:
+        try:
+            _stored_tok = instrument_cache.get_kite_token()
+            if _stored_tok:
+                session['access_token'] = _stored_tok
+        except Exception:  # noqa: BLE001
+            pass
 
 @app.route("/app_login", methods=["GET", "POST"])
 def app_login():
@@ -624,11 +635,143 @@ def get_kite_client():
 
 @app.route("/")
 def index():
-    return index_template.format(
-        api_key=kite_api_key,
-        redirect_url=redirect_url,
-        console_url=console_url,
-        login_url=login_url
+    # If Kite creds are set and we have an access token, land straight on
+    # the dashboard home. Otherwise open the credential screen.
+    if kite_api_key and not kite_api_key.startswith("PLACEHOLDER") and (
+        session.get("access_token") or _get_restored_kite_token()
+    ):
+        return redirect(url_for("home_page"))
+    return redirect(url_for("creds_page"))
+
+
+@app.route("/creds", methods=["GET", "POST"])
+def creds_page():
+    """Custom credentials screen.
+
+    Replaces the setup wizard + Kite OAuth redirect flow with a single form
+    that accepts API key, API secret, request_token (optional, one-time) and
+    access_token (optional, direct). Persists them to configfile.ini and the
+    kite_session_tokens table.
+    """
+    global kite_api_key, kite_api_secret
+
+    flash = None
+    flash_type = "info"
+
+    if request.method == "POST":
+        form = request.form
+        action = form.get("action", "save")
+
+        if action == "clear_token":
+            session.pop("access_token", None)
+            try:
+                instrument_cache.save_kite_token("")
+            except Exception:  # noqa: BLE001
+                pass
+            flash = "Access token cleared."
+            flash_type = "info"
+        else:
+            new_key    = (form.get("api_key") or "").strip()
+            new_secret = (form.get("api_secret") or "").strip()
+            new_req    = (form.get("request_token") or "").strip()
+            new_access = (form.get("access_token") or "").strip()
+
+            # Persist API key / secret into configfile.ini (only if provided).
+            try:
+                cfg = configparser.ConfigParser()
+                cfg.read(config_path)
+                if "kite_login_details" not in cfg:
+                    cfg["kite_login_details"] = {}
+                if new_key:
+                    cfg["kite_login_details"]["api_key"] = new_key
+                    kite_api_key = new_key
+                if new_secret:
+                    cfg["kite_login_details"]["api_secret"] = new_secret
+                    kite_api_secret = new_secret
+                with open(config_path, "w") as fh:
+                    cfg.write(fh)
+            except Exception as exc:  # noqa: BLE001
+                logging.exception("Failed to write configfile.ini")
+                flash = f"Failed to save config: {exc}"
+                flash_type = "err"
+                return _render_creds(flash, flash_type)
+
+            # Exchange request_token for access_token if provided.
+            if new_req and not new_access:
+                try:
+                    _kite = KiteConnect(api_key=kite_api_key)
+                    auth_data = _kite.generate_session(new_req, api_secret=kite_api_secret)
+                    new_access = auth_data["access_token"]
+                except Exception as exc:  # noqa: BLE001
+                    logging.exception("Failed to exchange request_token")
+                    flash = f"Could not exchange request_token: {exc}"
+                    flash_type = "err"
+                    return _render_creds(flash, flash_type)
+
+            if new_access:
+                _set_kite_session(new_access)
+                flash = "Credentials saved. Access token persisted."
+                flash_type = "ok"
+            else:
+                flash = "Configuration saved (no access token change)."
+                flash_type = "ok"
+
+    return _render_creds(flash, flash_type)
+
+
+def _render_creds(flash=None, flash_type="info"):
+    """Render the /creds template with the current status."""
+    def _mask(v: str, keep: int = 4) -> str:
+        if not v:
+            return "— not set —"
+        if v.startswith("PLACEHOLDER"):
+            return "— not set —"
+        if len(v) <= keep:
+            return "•" * len(v)
+        return v[:keep] + "•" * min(8, len(v) - keep)
+
+    stored_token = session.get("access_token") or _get_restored_kite_token() or ""
+
+    status = {
+        "api_key_set": bool(kite_api_key) and not kite_api_key.startswith("PLACEHOLDER"),
+        "api_key_display": _mask(kite_api_key, 6),
+        "api_secret_set": bool(kite_api_secret) and not kite_api_secret.startswith("PLACEHOLDER"),
+        "api_secret_display": _mask(kite_api_secret, 4),
+        "access_token_set": bool(stored_token),
+        "access_token_display": _mask(stored_token, 6),
+        "probe_ok": False,
+        "probe_error": None,
+        "probe_name": None,
+        "probe_user_id": None,
+    }
+
+    if status["api_key_set"] and status["access_token_set"]:
+        try:
+            _kite = KiteConnect(api_key=kite_api_key)
+            _kite.set_access_token(stored_token)
+            prof = _kite.profile()
+            status["probe_ok"] = True
+            status["probe_name"] = prof.get("user_name") or prof.get("user_shortname")
+            status["probe_user_id"] = prof.get("user_id")
+        except Exception as exc:  # noqa: BLE001
+            status["probe_error"] = str(exc)[:180]
+
+    # Determine dry-run vs live for the header badge.
+    _dry_run = True
+    try:
+        _cfg = configparser.ConfigParser()
+        _cfg.read(config_path)
+        if "safety" in _cfg:
+            _dry_run = _cfg["safety"].get("live_trading", "false").strip().lower() != "true"
+    except Exception:  # noqa: BLE001
+        pass
+
+    return render_template(
+        "creds.html",
+        status=status,
+        flash=flash,
+        flash_type=flash_type,
+        dry_run=_dry_run,
     )
 
 
