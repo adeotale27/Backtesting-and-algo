@@ -137,14 +137,16 @@
                 <li><span class="k">late_min_premium</span><span class="v">₹10</span></li>
             </ul>
             <ul>
-                <li><span class="k">hedge_distance_pts</span><span class="v">500 pts further OTM</span></li>
+                <li><span class="k">hedge_distance_pct</span><span class="v">1.5 % of ATM (SEBI-friendly)</span></li>
                 <li><span class="k">SL rounding rule</span><span class="v">1-5 → X5 · else (X+1)1</span></li>
                 <li><span class="k">SL slippage</span><span class="v">2 %</span></li>
                 <li><span class="k">repair_delay_min</span><span class="v">15 min</span></li>
                 <li><span class="k">max_repairs_per_jodi</span><span class="v">2</span></li>
                 <li><span class="k">profit_book_pct</span><span class="v">20 % of entry (80 % decay)</span></li>
                 <li><span class="k">daily_loss_limit_pct</span><span class="v">1 %</span></li>
-                <li><span class="k">daily_profit_target_pct</span><span class="v">2 %</span></li>
+                <li><span class="k">daily_profit_target_pct</span><span class="v">2 % → exit all &amp; carry-fwd</span></li>
+                <li><span class="k">carry_forward_start_time</span><span class="v">15:00 IST · Fri/Mon only</span></li>
+                <li><span class="k">vix_spike_threshold</span><span class="v">+15 % → skip carry-fwd</span></li>
                 <li><span class="k">max_concurrent_jodis</span><span class="v">3</span></li>
                 <li><span class="k">never_sell_ATM</span><span class="v">enforced (belt & braces)</span></li>
                 <li><span class="k">hedges_stay_until_exit</span><span class="v">yes</span></li>

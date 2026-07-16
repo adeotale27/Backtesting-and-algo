@@ -49,7 +49,6 @@ class JodiConfig:
     late_min_distance: int = 250          # Mon PM & Tue
     late_min_distance_fallback: int = 200
     late_min_premium: float = 10.0
-    hedge_distance_pts: int = 500          # wing = short strike ± 500
 
     # Repair rules (Section 9-11)
     repair_delay_min: int = 15            # wait 10-15 min after SL
@@ -61,6 +60,11 @@ class JodiConfig:
     # Daily risk (Section 14-15)
     daily_loss_limit_pct: float = 1.0
     daily_profit_target_pct: float = 2.0
+
+    # NEW ── EOD carry-forward (after profit target exit) + VIX-spike gate
+    carry_forward_start_time: time = time(15, 0)
+    vix_spike_threshold_pct: float = 15.0     # VIX up >15% vs previous close = "extreme"
+    hedge_distance_pct: float = 1.5           # hedge strike = short ± 1.5% of ATM
 
     # Time-of-day rules (Sections 3, 16)
     entry_start_time: time = time(9, 30)      # first entry each day at 9:30
@@ -325,6 +329,11 @@ class JodiEngine:
         self.day_start_equity = capital
         self.day_realized = 0.0
         self.last_bar_date: Optional[date] = None
+        # NEW: profit-target + VIX spike state
+        self.profit_target_hit_today: bool = False
+        self.vix_spiked_today: bool = False
+        self.prev_day_vix: Optional[float] = None
+        self.today_vix: Optional[float] = None
 
     # ---------------------------------------------------------------------
     # Public entry point
@@ -373,6 +382,22 @@ class JodiEngine:
             self.day_start_equity = self.equity
             self.day_realized = 0.0
             self.last_bar_date = bar_date
+            self.profit_target_hit_today = False
+            # VIX spike check — new day's close will only be known at EOD but
+            # kite gives us the closing VIX per date. Use previous day's close
+            # vs today's expected close as a proxy right at open.
+            self.prev_day_vix = self.today_vix
+            self.today_vix = vix_by_date.get(bar_date)
+            if self.prev_day_vix and self.today_vix:
+                change = (self.today_vix - self.prev_day_vix) / self.prev_day_vix * 100
+                self.vix_spiked_today = change >= self.cfg.vix_spike_threshold_pct
+                if self.vix_spiked_today:
+                    self.output.events.append(
+                        f"[{bar_time:%Y-%m-%d %H:%M}] ⚠ VIX SPIKE {self.prev_day_vix:.2f}→{self.today_vix:.2f} (+{change:.1f}%) "
+                        f"→ carry-forward disabled for today"
+                    )
+            else:
+                self.vix_spiked_today = False
 
         iv = vix_by_date.get(bar_date, 15.0)
         expiry = expiries_map.get(bar_date)
@@ -402,6 +427,20 @@ class JodiEngine:
             self._record_equity(bar_time)
             return
 
+        # 4b. Daily PROFIT target: if realised P&L for the day >= 2 % of
+        # day-start equity, exit every open position immediately. New Jodis
+        # may still be opened later in the day for a carry-forward trade
+        # (only on Fri / Mon, and only if VIX has not spiked today).
+        if not self.profit_target_hit_today:
+            pnl_pct = self.day_realized / max(1.0, self.day_start_equity) * 100
+            if pnl_pct >= self.cfg.daily_profit_target_pct:
+                self._force_close_all(bar, vix_by_date, expiries_map, reason="profit_target_hit")
+                self.profit_target_hit_today = True
+                self.output.events.append(
+                    f"[{bar_time:%Y-%m-%d %H:%M}] ✅ DAILY PROFIT TARGET HIT ({pnl_pct:.2f}%) → all positions closed. "
+                    f"Carry-forward window opens at {self.cfg.carry_forward_start_time:%H:%M}."
+                )
+
         # 5. Attempt to create a new Jodi if room / rules allow.
         if self._is_valid_entry_bar(bar_time):
             self._try_create_jodi(bar, spot_close, iv, r, expiry)
@@ -421,10 +460,21 @@ class JodiEngine:
         # If daily loss limit hit and we're still in the same day, disallow.
         if self.trading_disabled_until == bar_time.date():
             return False
-        # If daily profit target hit, cease creating new (Section 15 keeps 1-2%).
-        pnl_pct = (self.equity - self.day_start_equity) / self.day_start_equity * 100
-        if pnl_pct >= self.cfg.daily_profit_target_pct:
-            return False
+        # ── After daily profit target hit ──
+        # Only allow re-entry as CARRY-FORWARD trade:
+        #   • Fri or Mon only (Tue never carries — expiry is that day)
+        #   • Only after carry_forward_start_time (e.g. 15:00)
+        #   • Only if VIX has NOT spiked today
+        if self.profit_target_hit_today:
+            if weekday not in (0, 4):
+                return False
+            if bar_time.time() < self.cfg.carry_forward_start_time:
+                return False
+            if self.vix_spiked_today:
+                return False
+            # Also make sure we don't infinite-loop — allow at most one carry-
+            # forward wave by capping concurrent to max_concurrent_jodis (same
+            # limit) after profit target.
         # Concurrency cap.
         active = sum(1 for j in self.jodis if j.status == "active")
         return active < self.cfg.max_concurrent_jodis
@@ -449,9 +499,13 @@ class JodiEngine:
         if abs(pe_strike - spot) < 100 or abs(ce_strike - spot) < 100:
             return
 
-        # Hedges — 500 pts further OTM.
-        long_pe_strike = pe_strike - self.cfg.hedge_distance_pts
-        long_ce_strike = ce_strike + self.cfg.hedge_distance_pts
+        # Hedges — 1.5 % of ATM further OTM (SEBI/exchange-friendly hedge
+        # distance so the long premium has meaningful value and actually
+        # reduces span margin, instead of a nearly-worthless far OTM).
+        hedge_pts = int(round(spot * self.cfg.hedge_distance_pct / 100.0 / self.cfg.strike_gap) * self.cfg.strike_gap)
+        hedge_pts = max(hedge_pts, self.cfg.strike_gap * 2)   # at least 2 strikes away
+        long_pe_strike = pe_strike - hedge_pts
+        long_ce_strike = ce_strike + hedge_pts
         long_pe_px = _bs_price(spot, long_pe_strike, iv, dte, "PE", r)
         long_ce_px = _bs_price(spot, long_ce_strike, iv, dte, "CE", r)
 
