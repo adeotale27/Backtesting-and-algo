@@ -72,13 +72,15 @@ class JodiConfig:
     hedge_distance_pct: float = 1.5           # hedge strike = short ± 1.5% of ATM
 
     # Time-of-day rules (Sections 3, 16)
-    entry_start_time: time = time(9, 30)      # first entry each day at 9:30
+    entry_start_time: time = time(9, 30)      # first entry each day at 9:30 (Mon/Tue)
+    friday_entry_time: time = time(15, 15)    # Friday: ENTER LATE to harvest Sat+Sun theta
     tuesday_no_new_after: time = time(12, 0)
     hard_exit_time: time = time(15, 20)
 
     # Engine
     max_concurrent_jodis: int = 3          # multiple concurrent Jodis
     slippage_pct: float = 2.0              # % slippage on SL exit
+    dynamic_sizing: bool = True            # rescale lot count with current equity daily
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +411,17 @@ class JodiEngine:
             self.day_realized = 0.0
             self.last_bar_date = bar_date
             self.profit_target_hit_today = False
+            # Dynamic capital sizing: recompute lots per Jodi based on current
+            # equity so position size grows with profits and shrinks after losses.
+            if self.cfg.dynamic_sizing:
+                new_lots = max(1, int(self.equity // self.cfg.margin_per_lot))
+                if new_lots != self.max_lots:
+                    self.output.events.append(
+                        f"[{bar_time:%Y-%m-%d %H:%M}] 📊 Sizing rescaled: {self.max_lots} → {new_lots} lots "
+                        f"(equity ₹{self.equity:,.0f})"
+                    )
+                    self.max_lots = new_lots
+                    self.qty_per_leg = new_lots * self.cfg.lot_size
             # VIX spike check — new day's close will only be known at EOD but
             # kite gives us the closing VIX per date. Use previous day's close
             # vs today's expected close as a proxy right at open.
@@ -558,8 +571,16 @@ class JodiEngine:
             return False
         if weekday == 1 and bar_time.time() >= self.cfg.tuesday_no_new_after:
             return False
-        if bar_time.time() < self.cfg.entry_start_time:
-            return False
+        # ── Friday: enter LATE only (~15:15) to harvest Sat + Sun theta ──
+        if weekday == 4:
+            if bar_time.time() < self.cfg.friday_entry_time:
+                return False
+            # Don't enter after hard_exit_time on Friday either.
+            if bar_time.time() >= self.cfg.hard_exit_time:
+                return False
+        else:
+            if bar_time.time() < self.cfg.entry_start_time:
+                return False
         # If daily loss limit hit and we're still in the same day, disallow.
         if self.trading_disabled_until == bar_time.date():
             return False

@@ -101,9 +101,9 @@
     <div class="card">
         <h2>Trade flow</h2>
         <div class="flow-diagram">
-            <span class="step">Wake up (Fri/Mon/Tue @ 9:30)</span><span class="arrow">→</span>
+            <span class="step">Wake up (Mon/Tue @ 9:30 · Fri @ 15:15)</span><span class="arrow">→</span>
             <span class="step">Pick strikes per premium rules</span><span class="arrow">→</span>
-            <span class="step">Create Jodi (2 shorts + 2 hedges)</span><br>
+            <span class="step">Create Jodi (2 shorts + 2 hedges) · size = equity ÷ ₹2L lots</span><br>
             <span class="arrow">↓</span><br>
             <span class="step">Harvest theta</span><span class="arrow">→</span>
             <span class="step">On SL: exit that short (₹SL × 1.02)</span><span class="arrow">→</span>
@@ -128,13 +128,16 @@
                 <li><span class="k">margin_per_lot</span><span class="v">₹2,00,000</span></li>
                 <li><span class="k">trading_days</span><span class="v">Fri · Mon · Tue</span></li>
                 <li><span class="k">expiry</span><span class="v">Weekly Tuesday</span></li>
-                <li><span class="k">entry_start_time</span><span class="v">09:30 IST</span></li>
+                <li><span class="k">entry_start_time (Mon/Tue)</span><span class="v">09:30 IST</span></li>
+                <li><span class="k">friday_entry_time</span><span class="v">15:15 IST (weekend theta)</span></li>
                 <li><span class="k">tuesday_no_new_after</span><span class="v">12:00 IST</span></li>
                 <li><span class="k">hard_exit_time</span><span class="v">15:20 IST</span></li>
                 <li><span class="k">fri_premium_range</span><span class="v">₹25 – ₹40</span></li>
                 <li><span class="k">mon_am_premium_target</span><span class="v">₹20</span></li>
                 <li><span class="k">late_min_distance</span><span class="v">250 pts (fallback 200)</span></li>
                 <li><span class="k">late_min_premium</span><span class="v">₹10</span></li>
+                <li><span class="k">min_combined_premium</span><span class="v">₹10 (skip if below)</span></li>
+                <li><span class="k">dynamic_sizing</span><span class="v">yes · lots = equity ÷ ₹2L</span></li>
             </ul>
             <ul>
                 <li><span class="k">hedge_distance_pct</span><span class="v">1.5 % of ATM (SEBI-friendly)</span></li>
