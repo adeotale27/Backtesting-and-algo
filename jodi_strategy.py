@@ -64,12 +64,18 @@ class JodiConfig:
 
     # Daily risk (Section 14-15)
     daily_loss_limit_pct: float = 1.0
+    daily_soft_loss_pct: float = 0.6       # soft cap: stop new entries, keep managing
     daily_profit_target_pct: float = 2.0
 
     # NEW ── EOD carry-forward (after profit target exit) + VIX-spike gate
     carry_forward_start_time: time = time(15, 0)
     vix_spike_threshold_pct: float = 15.0     # VIX up >15% vs previous close = "extreme"
     hedge_distance_pct: float = 1.5           # hedge strike = short ± 1.5% of ATM
+
+    # NEW ── Portfolio limits
+    capital_per_jodi: float = 2_500_000.0     # 1 concurrent Jodi allowed per ₹25L
+    min_strike_separation_pts: int = 100      # new Jodi strikes must be ≥ this from existing Jodis
+    min_short_leg_premium: float = 10.0       # each short leg must sell ≥ ₹10 (v1.3)
 
     # Time-of-day rules (Sections 3, 16)
     entry_start_time: time = time(9, 30)      # first entry each day at 9:30 (Mon/Tue)
@@ -341,6 +347,8 @@ class JodiEngine:
         self.kite = kite
         self.max_lots = max(1, int(capital // cfg.margin_per_lot))
         self.qty_per_leg = self.max_lots * cfg.lot_size
+        # Initial capital-scaled max concurrent Jodis (Rule 4)
+        cfg.max_concurrent_jodis = max(1, int(capital // cfg.capital_per_jodi))
         self.jodis: List[Jodi] = []
         self.next_jodi_id = 1
         self.output = EngineOutput()
@@ -422,6 +430,16 @@ class JodiEngine:
                     )
                     self.max_lots = new_lots
                     self.qty_per_leg = new_lots * self.cfg.lot_size
+
+                # Also rescale max concurrent Jodis with capital (Rule 4).
+                new_max_concurrent = max(1, int(self.equity // self.cfg.capital_per_jodi))
+                if new_max_concurrent != self.cfg.max_concurrent_jodis:
+                    self.output.events.append(
+                        f"[{bar_time:%Y-%m-%d %H:%M}] 🔢 Max concurrent Jodis: "
+                        f"{self.cfg.max_concurrent_jodis} → {new_max_concurrent} "
+                        f"(₹{self.cfg.capital_per_jodi:,.0f}/Jodi)"
+                    )
+                    self.cfg.max_concurrent_jodis = new_max_concurrent
             # VIX spike check — new day's close will only be known at EOD but
             # kite gives us the closing VIX per date. Use previous day's close
             # vs today's expected close as a proxy right at open.
@@ -584,6 +602,11 @@ class JodiEngine:
         # If daily loss limit hit and we're still in the same day, disallow.
         if self.trading_disabled_until == bar_time.date():
             return False
+        # Rule 6 (v1.3): Soft loss cap at 0.6% — stop NEW entries, keep managing.
+        # If losses recover (day_realized > -soft_cap) allow entries again.
+        day_loss_pct = -(self.day_realized) / max(1.0, self.day_start_equity) * 100
+        if day_loss_pct >= self.cfg.daily_soft_loss_pct:
+            return False
         # ── After daily profit target hit ──
         # Only allow re-entry as CARRY-FORWARD trade:
         #   • Fri or Mon only (Tue never carries — expiry is that day)
@@ -622,6 +645,21 @@ class JodiEngine:
         # Rule 1: never ATM (belt-and-braces check).
         if abs(pe_strike - spot) < 100 or abs(ce_strike - spot) < 100:
             return
+
+        # Rule 8 (v1.3): every short leg's premium must be ≥ min_short_leg_premium.
+        if pe_px < self.cfg.min_short_leg_premium or ce_px < self.cfg.min_short_leg_premium:
+            return
+
+        # Rule 5 (v1.3): strike separation — new Jodi's short strikes must be
+        # at least min_strike_separation_pts away from every active Jodi's
+        # short strikes on the same side.
+        for existing in self.jodis:
+            if existing.status != "active":
+                continue
+            if existing.short_pe.is_open and abs(existing.short_pe.strike - pe_strike) < self.cfg.min_strike_separation_pts:
+                return
+            if existing.short_ce.is_open and abs(existing.short_ce.strike - ce_strike) < self.cfg.min_strike_separation_pts:
+                return
 
         # Hedges — 1.5 % of ATM further OTM (SEBI/exchange-friendly hedge
         # distance so the long premium has meaningful value and actually

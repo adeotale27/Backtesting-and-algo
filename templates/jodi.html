@@ -146,11 +146,14 @@
                 <li><span class="k">repair_delay_min</span><span class="v">15 min</span></li>
                 <li><span class="k">max_repairs_per_jodi</span><span class="v">2</span></li>
                 <li><span class="k">profit_book_pct</span><span class="v">20 % of entry (80 % decay)</span></li>
-                <li><span class="k">daily_loss_limit_pct</span><span class="v">1 %</span></li>
+                <li><span class="k">daily_soft_loss_pct</span><span class="v">0.6 % · stop new entries</span></li>
+                <li><span class="k">daily_loss_limit_pct</span><span class="v">1 % · hard exit all</span></li>
                 <li><span class="k">daily_profit_target_pct</span><span class="v">2 % → exit all &amp; carry-fwd</span></li>
                 <li><span class="k">carry_forward_start_time</span><span class="v">15:00 IST · Fri/Mon only</span></li>
                 <li><span class="k">vix_spike_threshold</span><span class="v">+15 % → skip carry-fwd</span></li>
-                <li><span class="k">max_concurrent_jodis</span><span class="v">3</span></li>
+                <li><span class="k">capital_per_jodi</span><span class="v">₹25L per concurrent Jodi</span></li>
+                <li><span class="k">min_strike_separation_pts</span><span class="v">100 pts between active Jodis</span></li>
+                <li><span class="k">min_short_leg_premium</span><span class="v">₹10 per leg</span></li>
                 <li><span class="k">never_sell_ATM</span><span class="v">enforced (belt & braces)</span></li>
                 <li><span class="k">hedges_stay_until_exit</span><span class="v">yes</span></li>
                 <li><span class="k">on_max_repairs</span><span class="v">let survivor run</span></li>
