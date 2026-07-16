@@ -50,9 +50,14 @@ class JodiConfig:
     late_min_distance_fallback: int = 200
     late_min_premium: float = 10.0
 
-    # Repair rules (Section 9-11)
-    repair_delay_min: int = 15            # wait 10-15 min after SL
+    # Repair rules (Section 9-11) + premium-matching (v1.1)
+    repair_delay_min: int = 15            # minimum wait after SL
     max_repairs_per_jodi: int = 2
+    repair_tolerance_abs: float = 2.0     # ±₹2 default
+    repair_tolerance_pct: float = 10.0    # or ±10 % (whichever is larger)
+    repair_min_premium: float = 5.0       # never repair with a cheaper strike
+    min_combined_premium: float = 10.0    # skip jodi if new_sum below this
+    stabilization_conditions_required: int = 2  # need >= this many of 5 checks
 
     # Profit booking (Section 12)
     profit_book_pct: float = 0.20          # book surviving short at <= 20% of entry
@@ -252,23 +257,37 @@ def _find_repair_strike(
     spot: float, iv: float, dte: float, r: float,
     side: str, target_premium: float, cfg: JodiConfig,
 ) -> Optional[Tuple[int, float]]:
-    """After SL on one side, find a new short whose BS price ≈ surviving side's LTP,
-    while respecting the strike-distance rules for the current time."""
+    """Find OTM strike whose BS price matches target_premium within tolerance.
+
+    Rules (Jodi v1.1 premium-pairing):
+        • tolerance = max(±₹repair_tolerance_abs, ±repair_tolerance_pct % of target)
+        • must satisfy min_distance rule (fallback = late_min_distance_fallback)
+        • strike premium ≥ repair_min_premium (never repair with ₹4-₹5 far-OTM)
+        • never ATM
+    Returns (strike, price) if a match exists; None otherwise.
+    """
+    tol = max(cfg.repair_tolerance_abs, target_premium * cfg.repair_tolerance_pct / 100.0)
+    lo = max(cfg.repair_min_premium, target_premium - tol)
+    hi = target_premium + tol
     center = _round_strike(spot, cfg.strike_gap)
     sign = -1 if side == "PE" else +1
-    best = None
-    best_diff = 1e9
-    # Ensure the repair strike still respects min distance (use late_min_distance).
     min_step = max(4, cfg.late_min_distance_fallback // cfg.strike_gap)
-    for step in range(min_step, min_step + 30):
+
+    best: Optional[Tuple[int, float]] = None
+    best_diff = float("inf")
+    for step in range(min_step, min_step + 40):
         k = center + sign * step * cfg.strike_gap
-        if k <= 0: continue
+        if k <= 0 or abs(k - spot) < 100:   # never ATM
+            continue
         p = _bs_price(spot, k, iv, dte, side, r)
-        diff = abs(p - target_premium)
-        if diff < best_diff:
-            best_diff = diff
-            best = (k, p)
-    return best
+        if p < cfg.repair_min_premium:
+            continue
+        if lo <= p <= hi:
+            diff = abs(p - target_premium)
+            if diff < best_diff:
+                best_diff = diff
+                best = (k, p)
+    return best   # None ⇒ no quality match → skip repair (Jodi v1.1 rule)
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +353,8 @@ class JodiEngine:
         self.vix_spiked_today: bool = False
         self.prev_day_vix: Optional[float] = None
         self.today_vix: Optional[float] = None
+        # Rolling bar history for ATR / ADX / range checks (last 30 bars)
+        self._recent_bars: List[Dict] = []
 
     # ---------------------------------------------------------------------
     # Public entry point
@@ -376,6 +397,11 @@ class JodiEngine:
         bar_time: datetime = bar["date"]
         bar_date: date = bar_time.date()
         weekday = bar_time.weekday()
+
+        # ── Keep rolling recent bars for ATR / ADX / range checks ──
+        self._recent_bars.append(bar)
+        if len(self._recent_bars) > 30:
+            self._recent_bars = self._recent_bars[-30:]
 
         # ── Roll daily state ──
         if self.last_bar_date != bar_date:
@@ -448,6 +474,83 @@ class JodiEngine:
         # 6. Equity mark-to-market.
         self._record_equity(bar_time, mtm_spot=spot_close, iv=iv, r=r, expiry=expiry)
 
+    # ---------------------------------------------------------------------
+    # Market-stabilization check (Jodi v1.1)
+    # ---------------------------------------------------------------------
+
+    def _is_market_stable(self, iv_now: float) -> Tuple[bool, List[str]]:
+        """Return (stable, reasons_passed). Need >= stabilization_conditions_required."""
+        bars = self._recent_bars
+        if len(bars) < 5:
+            return False, ["not enough bar history"]
+        passed: List[str] = []
+        curr = bars[-1]
+
+        # 1) Price within previous bar's range (proxy for last 10-min range on 15-min data)
+        if len(bars) >= 2:
+            prev = bars[-2]
+            if prev["low"] <= curr["close"] <= prev["high"]:
+                passed.append("price_in_prev_range")
+
+        # 2) Last 3 candles overlap
+        if len(bars) >= 3:
+            c1, c2, c3 = bars[-3], bars[-2], bars[-1]
+            low_max = max(c1["low"], c2["low"], c3["low"])
+            high_min = min(c1["high"], c2["high"], c3["high"])
+            if low_max <= high_min:
+                passed.append("3-candle overlap")
+
+        # 3) ATR(14) decreasing
+        atr_now  = self._atr(bars[-14:]) if len(bars) >= 14 else None
+        atr_prev = self._atr(bars[-15:-1]) if len(bars) >= 15 else None
+        if atr_now is not None and atr_prev is not None and atr_now < atr_prev:
+            passed.append(f"ATR↓ {atr_now:.0f}<{atr_prev:.0f}")
+
+        # 4) ADX(14) < 25 (weak trend / ranging)
+        adx = self._adx(bars[-15:]) if len(bars) >= 15 else None
+        if adx is not None and adx < 25:
+            passed.append(f"ADX={adx:.1f}<25")
+
+        # 5) IV not increasing today vs yesterday (allow 2 % noise)
+        if self.prev_day_vix and iv_now:
+            if iv_now <= self.prev_day_vix * 1.02:
+                passed.append(f"IV≤prev {iv_now:.1f}≤{self.prev_day_vix:.1f}")
+
+        return len(passed) >= self.cfg.stabilization_conditions_required, passed
+
+    @staticmethod
+    def _atr(bars: List[Dict]) -> Optional[float]:
+        if len(bars) < 2: return None
+        trs = []
+        for i in range(1, len(bars)):
+            h, l, pc = bars[i]["high"], bars[i]["low"], bars[i-1]["close"]
+            trs.append(max(h-l, abs(h-pc), abs(l-pc)))
+        return sum(trs) / len(trs) if trs else None
+
+    @staticmethod
+    def _adx(bars: List[Dict]) -> Optional[float]:
+        """Simplified Wilder ADX(14). Returns None if insufficient data."""
+        if len(bars) < 15: return None
+        pdms, ndms, trs = [], [], []
+        for i in range(1, len(bars)):
+            up_move   = bars[i]["high"] - bars[i-1]["high"]
+            down_move = bars[i-1]["low"] - bars[i]["low"]
+            pdms.append(up_move   if up_move   > down_move and up_move   > 0 else 0)
+            ndms.append(down_move if down_move > up_move   and down_move > 0 else 0)
+            tr = max(
+                bars[i]["high"] - bars[i]["low"],
+                abs(bars[i]["high"] - bars[i-1]["close"]),
+                abs(bars[i]["low"]  - bars[i-1]["close"]),
+            )
+            trs.append(tr)
+        atr = sum(trs) / len(trs)
+        if atr == 0: return None
+        pdi = 100 * (sum(pdms) / len(pdms)) / atr
+        ndi = 100 * (sum(ndms) / len(ndms)) / atr
+        if pdi + ndi == 0: return None
+        dx = 100 * abs(pdi - ndi) / (pdi + ndi)
+        return dx   # single-period approximation
+
     def _is_valid_entry_bar(self, bar_time: datetime) -> bool:
         weekday = bar_time.weekday()
         # Fri (4), Mon (0), Tue (1) only. Tue: only before 12 PM.
@@ -514,6 +617,9 @@ class JodiEngine:
             return
 
         sum_short = pe_px + ce_px
+        # Jodi v1.1: minimum combined premium ₹10 — skip if below.
+        if sum_short < self.cfg.min_combined_premium:
+            return
         sl = jodi_sl_from_sum(sum_short)
 
         jid = self.next_jodi_id
@@ -629,6 +735,11 @@ class JodiEngine:
                 continue
             if not jodi.repair_pending_side or bar_time < (jodi.repair_ready_at or bar_time):
                 continue
+            # Additional Jodi v1.1 gate: market must be stable (≥2 of 5 checks).
+            stable, reasons = self._is_market_stable(iv)
+            if not stable:
+                # Push repair check to next bar — market not yet calm enough.
+                continue
             # Do repair now.
             side = jodi.repair_pending_side
             surv = jodi.surviving_short()
@@ -642,18 +753,40 @@ class JodiEngine:
                 0.02,
             )
             target_px = _bs_price(spot_close, surv.strike, iv, dte, surv.side, r)
+
+            # If surviving premium already too low → not worth repairing.
+            if target_px < self.cfg.repair_min_premium:
+                jodi.repair_pending_side = None
+                jodi.repair_ready_at = None
+                jodi.status = "one_side_dead"
+                self.output.events.append(
+                    f"[{bar_time:%Y-%m-%d %H:%M}] JODI #{jodi.id} SKIP REPAIR — surviving {surv.side} ₹{target_px:.1f} "
+                    f"< min ₹{self.cfg.repair_min_premium:.0f}. Letting survivor run."
+                )
+                continue
+
             pick = _find_repair_strike(spot_close, iv, dte, r, side, target_px, self.cfg)
             if not pick:
+                # No quality match in ±tolerance → SKIP repair (v1.1 rule).
                 jodi.repair_pending_side = None
                 jodi.repair_ready_at = None
+                jodi.status = "one_side_dead"
+                self.output.events.append(
+                    f"[{bar_time:%Y-%m-%d %H:%M}] JODI #{jodi.id} SKIP REPAIR — "
+                    f"no {side} strike within ±₹{max(self.cfg.repair_tolerance_abs, target_px*self.cfg.repair_tolerance_pct/100):.1f} of ₹{target_px:.1f}. Survivor runs."
+                )
                 continue
             new_strike, new_px = pick
-            if new_px < 3:
-                # Premium too low → skip repair (would just SL immediately).
+
+            new_sum = target_px + new_px
+            if new_sum < self.cfg.min_combined_premium:
+                # Sum too low → skip repair.
                 jodi.repair_pending_side = None
                 jodi.repair_ready_at = None
+                jodi.status = "one_side_dead"
                 self.output.events.append(
-                    f"[{bar_time:%Y-%m-%d %H:%M}] JODI #{jodi.id} repair skipped for {side} — premium too low (₹{new_px:.1f})"
+                    f"[{bar_time:%Y-%m-%d %H:%M}] JODI #{jodi.id} SKIP REPAIR — "
+                    f"combined ₹{new_sum:.1f} < min ₹{self.cfg.min_combined_premium:.0f}."
                 )
                 continue
 
@@ -665,12 +798,13 @@ class JodiEngine:
             jodi.repairs_used += 1
             jodi.repair_pending_side = None
             jodi.repair_ready_at = None
-            jodi.sum_short = jodi.short_pe.entry_price + jodi.short_ce.entry_price if (jodi.short_pe.is_open and jodi.short_ce.is_open) else new_px + target_px
+            jodi.sum_short = new_sum
             jodi.per_leg_sl = jodi_sl_from_sum(jodi.sum_short)
             jodi.profit_target = self.cfg.profit_book_pct * jodi.sum_short
             self.output.events.append(
                 f"[{bar_time:%Y-%m-%d %H:%M}] JODI #{jodi.id} REPAIR {side} → {new_strike}@{new_px:.1f} "
-                f"(repair {jodi.repairs_used}/{self.cfg.max_repairs_per_jodi}) new sum={jodi.sum_short:.1f} → SL/leg=₹{jodi.per_leg_sl:.0f}"
+                f"(mirror ₹{target_px:.1f} · stable: {' + '.join(reasons)}) "
+                f"repair {jodi.repairs_used}/{self.cfg.max_repairs_per_jodi} new sum={jodi.sum_short:.1f} → SL/leg=₹{jodi.per_leg_sl:.0f}"
             )
 
     def _maybe_close_hedges_and_complete(self, jodi: Jodi, bar_time: datetime, spot: float, iv: float, dte: float, r: float, status: str):
