@@ -731,6 +731,8 @@ class JodiEngine:
         NIFTY_TOKEN = 256265
         VIX_TOKEN = 264969
         # Try 15-min first, else fall back to 5-min, else day
+        bars = []
+        granularity = "none"
         for interval in ("15minute", "5minute", "day"):
             try:
                 bars = self.kite.historical_data(
@@ -745,8 +747,13 @@ class JodiEngine:
             except Exception as e:
                 logger.warning("Historical fetch @ %s failed: %s", interval, str(e)[:120])
                 continue
-        else:
+        if not bars:
             return [], {}, "none"
+
+        # Kite returns tz-aware datetimes (IST). Convert all to naive local time.
+        for c in bars:
+            if c["date"].tzinfo is not None:
+                c["date"] = c["date"].replace(tzinfo=None)
 
         # VIX daily
         try:
@@ -756,7 +763,10 @@ class JodiEngine:
                 datetime.combine(end,   time(23, 59)),
                 "day",
             )
-            vix_by_date = {c["date"].date(): float(c["close"]) for c in vix}
+            vix_by_date = {}
+            for c in vix:
+                d = c["date"].date() if hasattr(c["date"], "date") else c["date"]
+                vix_by_date[d] = float(c["close"])
         except Exception:
             vix_by_date = {}
         return bars, vix_by_date, granularity
@@ -916,6 +926,11 @@ def run_jodi_backtest(kite, start: date, end: date, capital: float,
     eng = JodiEngine(cfg, capital, kite)
     out = eng.run(start, end)
     stats = compute_analytics(out, capital, start, end)
+    # Convert time objects → strings for JSON serialisation.
+    cfg_dict = asdict(cfg)
+    for k, v in cfg_dict.items():
+        if isinstance(v, time):
+            cfg_dict[k] = v.strftime("%H:%M")
     return {
         "strategy": "Jodi v1.0 · Continuous Theta Harvesting",
         "index": "NIFTY",
@@ -924,5 +939,5 @@ def run_jodi_backtest(kite, start: date, end: date, capital: float,
         "jodis":  out.jodis,
         "equity_curve": out.equity_curve[-2000:],
         "events": out.events[-300:],
-        "config": asdict(cfg),
+        "config": cfg_dict,
     }

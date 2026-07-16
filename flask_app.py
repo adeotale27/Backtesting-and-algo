@@ -894,6 +894,12 @@ def backtest_page():
     )
 
 
+@app.route("/jodi")
+def jodi_page():
+    """Jodi v1.0 strategy dashboard (backtest + roadmap)."""
+    return render_template("jodi.html")
+
+
 @app.route("/api/backtest/run", methods=["POST"])
 def backtest_run():
     """Execute a backtest and return the results as JSON."""
