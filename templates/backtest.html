@@ -234,6 +234,9 @@ document.getElementById('backtest-form').addEventListener('submit', async (ev) =
 });
 
 function renderResult(r) {
+    // Jodi v1.0 engine returns a different shape (has `stats` + `jodis`).
+    if (r._engine === 'jodi_v1') return renderJodiV1(r);
+
     document.getElementById('results-title').textContent =
         `${r.strategy} · ${r.index}`;
     document.getElementById('results-meta').textContent =
@@ -251,44 +254,14 @@ function renderResult(r) {
     if (r.notes && r.notes.length) {
         notes.innerHTML = '<b>Simulation notes</b><ul>' + r.notes.map(n => `<li>${n}</li>`).join('') + '</ul>';
         notes.style.display = 'block';
-    } else {
-        notes.style.display = 'none';
-    }
+    } else { notes.style.display = 'none'; }
 
-    // Equity chart
-    if (chart) chart.destroy();
-    const ctx = document.getElementById('equity-chart').getContext('2d');
-    chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: r.equity_curve.map(p => p.date),
-            datasets: [{
-                label: 'Equity',
-                data: r.equity_curve.map(p => p.equity),
-                borderColor: '#22d3ee',
-                backgroundColor: 'rgba(34,211,238,0.08)',
-                fill: true,
-                tension: 0.15,
-                pointRadius: 2,
-                borderWidth: 2,
-            }],
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { ticks: { color: '#94a3b8', maxRotation: 0 }, grid: { color: '#1f2937' } },
-                y: { ticks: { color: '#94a3b8', callback: v => '₹' + (v/100000).toFixed(1) + 'L' }, grid: { color: '#1f2937' } },
-            },
-        },
-    });
+    drawEquity(r.equity_curve.map(p => p.date), r.equity_curve.map(p => p.equity));
 
-    // Trades table
     const tbody = document.querySelector('#trades-table tbody');
     tbody.innerHTML = r.trades.slice(0, 200).map(t => `
         <tr>
-            <td>${t.entry_date}</td>
-            <td>${t.exit_date}</td>
+            <td>${t.entry_date}</td><td>${t.exit_date}</td>
             <td><span class="badge ${t.direction}">${t.direction.toUpperCase()}</span></td>
             <td style="text-align:right">${t.entry_price.toLocaleString('en-IN')}</td>
             <td style="text-align:right">${t.exit_price.toLocaleString('en-IN')}</td>
@@ -299,8 +272,137 @@ function renderResult(r) {
     `).join('');
     document.getElementById('trades-count').textContent =
         `${r.num_trades} trade(s)` + (r.num_trades > 200 ? ' (showing first 200)' : '');
+    document.getElementById('results').style.display = 'block';
+}
+
+function renderJodiV1(r) {
+    const s = r.stats;
+    document.getElementById('results-title').textContent = r.strategy + ' · ' + r.index;
+    document.getElementById('results-meta').textContent =
+        `From ${s.start_date} to ${s.end_date} · Initial capital ${fmtInr(s.initial_capital)}`;
+
+    // Primary KPIs
+    const kpi = document.getElementById('kpi-grid');
+    kpi.innerHTML = `
+        <div class="kpi"><div class="k">Total return</div><div class="v ${pctClass(s.total_return_pct)}">${s.total_return_pct > 0 ? '+' : ''}${s.total_return_pct.toFixed(2)}%</div><div class="sm">${fmtInr(s.total_pnl)} P&amp;L</div></div>
+        <div class="kpi"><div class="k">Final capital</div><div class="v">${fmtInr(s.final_capital)}</div><div class="sm">from ${fmtInr(s.initial_capital)}</div></div>
+        <div class="kpi"><div class="k">Jodis</div><div class="v">${s.total_jodis_created}</div><div class="sm">${s.total_jodis_completed} done · ${s.total_jodis_active} active</div></div>
+        <div class="kpi"><div class="k">Win rate</div><div class="v ${s.win_rate_pct>=50?'pos':'neg'}">${s.win_rate_pct.toFixed(1)}%</div><div class="sm">${s.total_jodis_winning}W / ${s.total_jodis_losing}L</div></div>
+    `;
+
+    // Secondary metrics — put into notes box formatted as a metric grid.
+    const notes = document.getElementById('notes-box');
+    notes.style.background = 'transparent';
+    notes.style.border = 'none';
+    notes.style.padding = '0';
+    notes.innerHTML = `
+      <div style="background:#0a0f1c;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Risk & performance</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;">
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">MAX DRAWDOWN</div><div style="color:#f43f5e;font-size:15px;">-${s.max_drawdown_pct.toFixed(2)}%</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">SHARPE</div><div style="font-size:15px;">${s.sharpe_ratio.toFixed(2)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">SORTINO</div><div style="font-size:15px;">${s.sortino_ratio.toFixed(2)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">PROFIT FACTOR</div><div style="font-size:15px;">${s.profit_factor.toFixed(2)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">MAX WIN STREAK</div><div style="font-size:15px;">${s.max_winning_streak}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">MAX LOSS STREAK</div><div style="font-size:15px;">${s.max_losing_streak}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">GROSS PROFIT</div><div style="color:#22c55e;font-size:15px;">${fmtInr(s.gross_profit)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">GROSS LOSS</div><div style="color:#f43f5e;font-size:15px;">${fmtInr(s.gross_loss)}</div></div>
+        </div>
+      </div>
+      <div style="background:#0a0f1c;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Jodi mechanics</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;">
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">TOTAL REPAIRS</div><div style="font-size:15px;">${s.total_repairs}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">AVG REPAIRS/JODI</div><div style="font-size:15px;">${s.avg_repairs_per_jodi}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">REPAIR SUCCESS</div><div style="font-size:15px;">${s.repair_success_pct.toFixed(1)}%</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">SL EVENTS</div><div style="color:#f59e0b;font-size:15px;">${s.sl_events}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">PROFIT BOOKS</div><div style="color:#22c55e;font-size:15px;">${s.profit_book_events}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">AVG PREM SOLD</div><div style="font-size:15px;">₹${s.avg_premium_sold.toFixed(1)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">AVG PREM CAPTURED</div><div style="font-size:15px;">₹${s.avg_premium_captured.toFixed(1)}</div></div>
+          <div><div style="color:#94a3b8;font-size:10px;letter-spacing:.08em;">AVG PNL / JODI</div><div style="font-size:15px;">${fmtInr(s.avg_pnl_per_jodi)}</div></div>
+        </div>
+      </div>
+    `;
+    if (s.monthly_pnl && Object.keys(s.monthly_pnl).length) {
+        const monthsHtml = Object.entries(s.monthly_pnl).map(([m, p]) => `
+          <div style="background:${p>=0?'rgba(34,197,94,0.06)':'rgba(244,63,94,0.06)'};border:1px solid ${p>=0?'rgba(34,197,94,0.25)':'rgba(244,63,94,0.25)'};border-radius:8px;padding:10px 12px;">
+            <div style="font-size:10px;color:#94a3b8;letter-spacing:.08em;text-transform:uppercase;">${m}</div>
+            <div style="font-size:14px;color:${p>=0?'#22c55e':'#f43f5e'};font-family:'JetBrains Mono',monospace;">${fmtInr(p)}</div>
+          </div>
+        `).join('');
+        notes.innerHTML += `
+          <div style="background:#0a0f1c;border:1px solid #1f2937;border-radius:10px;padding:16px 18px;margin-bottom:16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:12px;">Monthly P&amp;L heatmap</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;">${monthsHtml}</div>
+          </div>`;
+    }
+    notes.style.display = 'block';
+
+    // Equity chart from the intraday curve — thin it out to keep chart snappy.
+    const step = Math.max(1, Math.floor(r.equity_curve.length / 400));
+    const labels = [];
+    const values = [];
+    for (let i = 0; i < r.equity_curve.length; i += step) {
+        labels.push(r.equity_curve[i][0].replace('T', ' ').slice(0, 16));
+        values.push(r.equity_curve[i][1]);
+    }
+    drawEquity(labels, values);
+
+    // Trades table — use r.trades (which include side/strike now).
+    const tbody = document.querySelector('#trades-table tbody');
+    tbody.innerHTML = (r.trades || []).slice(0, 500).map(t => `
+        <tr>
+            <td>${(t.entry_date || '').replace('T',' ').slice(0,16)}</td>
+            <td>${(t.exit_date  || '').replace('T',' ').slice(0,16)}</td>
+            <td><span class="badge ${t.direction}">${t.direction.toUpperCase()}</span></td>
+            <td style="text-align:right">${(t.entry_price || 0).toLocaleString('en-IN')}</td>
+            <td style="text-align:right">${(t.exit_price || 0).toLocaleString('en-IN')}</td>
+            <td style="text-align:right">${t.quantity}</td>
+            <td style="text-align:right; color: ${t.pnl > 0 ? '#22c55e' : (t.pnl < 0 ? '#f43f5e' : '#94a3b8')}">${fmtInr(t.pnl)}</td>
+            <td style="color:#94a3b8;font-size:11px;">${t.note || ''}</td>
+        </tr>
+    `).join('');
+    document.getElementById('trades-count').textContent =
+        `${r.trades.length} leg-trade(s) across ${s.total_jodis_created} Jodi(s)` + (r.trades.length > 500 ? ' (showing first 500)' : '');
+
+    // Events log at the bottom.
+    if (r.events && r.events.length) {
+        let evBox = document.getElementById('events-box');
+        if (!evBox) {
+            evBox = document.createElement('div');
+            evBox.className = 'card';
+            evBox.id = 'events-box';
+            evBox.innerHTML = `<h2>Event log</h2><p class="help">Every Jodi creation / SL / repair / profit-book / expiry event in chronological order.</p><div style="max-height:360px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:11px;background:#0a0f1c;border:1px solid #1f2937;border-radius:8px;padding:12px 14px;line-height:1.7;color:#cbd5e1;" id="events-log"></div>`;
+            document.getElementById('results').appendChild(evBox);
+        }
+        document.getElementById('events-log').innerHTML =
+            r.events.map(ev => `<div>${ev}</div>`).join('');
+    }
 
     document.getElementById('results').style.display = 'block';
+}
+
+function drawEquity(labels, values) {
+    if (chart) chart.destroy();
+    const ctx = document.getElementById('equity-chart').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{
+            label: 'Equity',
+            data: values,
+            borderColor: '#22d3ee',
+            backgroundColor: 'rgba(34,211,238,0.08)',
+            fill: true, tension: 0.15, pointRadius: 0, borderWidth: 2,
+        }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#94a3b8', maxTicksLimit: 10, maxRotation: 0 }, grid: { color: '#1f2937' } },
+                y: { ticks: { color: '#94a3b8', callback: v => '₹' + (v/100000).toFixed(1) + 'L' }, grid: { color: '#1f2937' } },
+            },
+        },
+    });
 }
 </script>
 {% include '_footer_partial.html' %}

@@ -923,6 +923,24 @@ def backtest_run():
 
     t0 = time.time()
     try:
+        # ── Jodi v1.0 uses the dedicated theta-harvesting engine ──
+        if strategy == "jodi":
+            import jodi_strategy
+            cfg = jodi_strategy.JodiConfig()
+            # Optional overrides from payload
+            for k in ("repair_delay_min", "max_repairs_per_jodi", "daily_loss_limit_pct",
+                      "profit_book_pct", "slippage_pct", "max_concurrent_jodis"):
+                if payload.get(k) not in (None, ""):
+                    try:
+                        setattr(cfg, k, type(getattr(cfg, k))(payload[k]))
+                    except (ValueError, TypeError):
+                        pass
+            resp = jodi_strategy.run_jodi_backtest(kite, start, end, capital, cfg)
+            resp["_elapsed_ms"] = int((time.time() - t0) * 1000)
+            resp["_engine"] = "jodi_v1"
+            return jsonify(resp)
+
+        # Legacy path for the other strategies
         result = backtest_engine.run_backtest(kite, strategy, index, start, end, capital)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

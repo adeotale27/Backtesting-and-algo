@@ -419,7 +419,7 @@ STRATEGIES: Dict[str, Tuple[str, Callable]] = {
     "survivor":        ("Survivor (weekly straddle)",  _strategy_survivor),
     "expiry_trade":    ("Expiry Trade (RSI proxy)",    _strategy_expiry_trade),
     "covered_calls":   ("Covered Calls (weekly OTM)",  _strategy_covered_calls),
-    "jodi":            ("Jodi (NIFTY iron-condor, Mon/Fri entry)", None),  # handled separately
+    "jodi":            ("Jodi v1.0 (Continuous Theta Harvesting)", None),  # handled separately
 }
 
 
