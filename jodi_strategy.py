@@ -358,8 +358,9 @@ class JodiEngine:
         self.day_start_equity = capital
         self.day_realized = 0.0
         self.last_bar_date: Optional[date] = None
-        # NEW: profit-target + VIX spike state
+        # NEW: profit-target + VIX spike + hard-loss pause state
         self.profit_target_hit_today: bool = False
+        self.hard_loss_hit_today: bool = False
         self.vix_spiked_today: bool = False
         self.prev_day_vix: Optional[float] = None
         self.today_vix: Optional[float] = None
@@ -419,6 +420,7 @@ class JodiEngine:
             self.day_realized = 0.0
             self.last_bar_date = bar_date
             self.profit_target_hit_today = False
+            self.hard_loss_hit_today = False
             # Dynamic capital sizing: recompute lots per Jodi based on current
             # equity so position size grows with profits and shrinks after losses.
             if self.cfg.dynamic_sizing:
@@ -478,11 +480,17 @@ class JodiEngine:
         # 3. Attempt pending repairs (10-15 min after SL).
         self._process_repairs(bar, spot_close, iv, r, expiry)
 
-        # 4. Daily loss circuit-breaker (Section 14).
-        if self._daily_loss_hit():
-            self.trading_disabled_until = bar_date
-            self._record_equity(bar_time)
-            return
+        # 4. Daily HARD loss circuit-breaker (1 % of day-start equity).
+        # Behaviour (v1.4): DO NOT force-close positions. Existing profitable
+        # legs continue to run with their per-leg SL/target. Only NEW entries
+        # are paused until the 15:15 carry-forward re-entry window opens.
+        if not self.hard_loss_hit_today and self._daily_loss_hit():
+            self.hard_loss_hit_today = True
+            realised_loss = self.day_realized
+            self.output.events.append(
+                f"[{bar_time:%Y-%m-%d %H:%M}] ⛔ HARD LOSS 1% HIT (realised ₹{realised_loss:,.0f}). "
+                f"Keeping open legs at their SL/target. New entries paused until 15:15."
+            )
 
         # 4b. Daily PROFIT target: if realised P&L for the day >= 2 % of
         # day-start equity, exit every open position immediately. New Jodis
@@ -601,6 +609,11 @@ class JodiEngine:
                 return False
         # If daily loss limit hit and we're still in the same day, disallow.
         if self.trading_disabled_until == bar_time.date():
+            return False
+        # Rule (v1.4): HARD 1 % loss → pause new entries until 15:15 IST.
+        # Existing positions keep running; a fresh Jodi may be created after
+        # 15:15 to harvest overnight theta (subject to normal rules + VIX gate).
+        if self.hard_loss_hit_today and bar_time.time() < self.cfg.friday_entry_time:
             return False
         # Rule 6 (v1.3): Soft loss cap at 0.6% — stop NEW entries, keep managing.
         # If losses recover (day_realized > -soft_cap) allow entries again.
