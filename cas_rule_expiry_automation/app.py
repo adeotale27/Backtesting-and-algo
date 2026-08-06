@@ -207,17 +207,52 @@ def api_settings():
 @app.post("/api/activate")
 @login_required
 def api_activate():
-    state = get_store().activate(session.get("user", "admin"))
+    store = get_store()
+    if store.is_activated():
+        return jsonify(
+            {
+                "ok": True,
+                "unchanged": True,
+                "state": store.snapshot(),
+                "message": "CAS window already active",
+            }
+        )
+    state = store.activate(session.get("user", "admin"))
     eng = get_engine()
     if not eng.running:
         eng.start()
-    return jsonify({"ok": True, "state": state})
+    return jsonify(
+        {
+            "ok": True,
+            "unchanged": False,
+            "state": state,
+            "message": "CAS window activated — watching for close print",
+        }
+    )
 
 
 @app.post("/api/deactivate")
 @login_required
 def api_deactivate():
-    return jsonify({"ok": True, "state": get_store().deactivate(session.get("user", "admin"))})
+    store = get_store()
+    if not store.is_activated():
+        return jsonify(
+            {
+                "ok": True,
+                "unchanged": True,
+                "state": store.snapshot(),
+                "message": "CAS window already inactive",
+            }
+        )
+    state = store.deactivate(session.get("user", "admin"))
+    return jsonify(
+        {
+            "ok": True,
+            "unchanged": False,
+            "state": state,
+            "message": "CAS window deactivated — no sells",
+        }
+    )
 
 
 @app.post("/api/reset")

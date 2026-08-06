@@ -108,10 +108,18 @@ button {
 }
 .btn-lg { padding: 0.8rem 1rem; font-size: 0.95rem; }
 .btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { filter: brightness(1.05); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.05); }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
 .btn-warn { background: #f59e0b; color: #1a1200; }
+.btn-primary:disabled,
+.btn-danger:disabled,
+.btn-ghost:disabled,
+.btn-warn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
 
 .steps {
   margin: 0 0 0.85rem; padding-left: 1.15rem; color: var(--muted);

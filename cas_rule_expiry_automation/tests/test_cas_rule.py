@@ -303,6 +303,31 @@ def test_watch_start_migrates_1528_to_1527(tmp_path):
     assert "15:28:00" not in text
 
 
+def test_activate_deactivate_idempotent(tmp_path):
+    from cas_rule_expiry_automation.state import StateStore
+
+    store = StateStore(str(tmp_path / "state.json"))
+    a1 = store.activate("u")
+    assert a1["activated"] is True and a1.get("unchanged") is False
+    a2 = store.activate("u")
+    assert a2["activated"] is True and a2.get("unchanged") is True
+    # Only one activated event
+    kinds = [e["kind"] for e in store.snapshot()["events"]]
+    assert kinds.count("activated") == 1
+
+    d1 = store.deactivate("u")
+    assert d1["activated"] is False and d1.get("unchanged") is False
+    d2 = store.deactivate("u")
+    assert d2["activated"] is False and d2.get("unchanged") is True
+    kinds2 = [e["kind"] for e in store.snapshot()["events"]]
+    assert kinds2.count("deactivated") == 1
+
+    # Persist across new store instance (page refresh)
+    store.activate("u")
+    store2 = StateStore(str(tmp_path / "state.json"))
+    assert store2.is_activated() is True
+
+
 def test_app_login_page(tmp_path):
     # Point config via ensuring package config exists from example
     from cas_rule_expiry_automation.config import ensure_config
@@ -316,9 +341,24 @@ def test_app_login_page(tmp_path):
         s["user"] = "admin"
     live = c.get("/")
     assert live.status_code == 200
-    assert b"Arm for today" in live.data
+    assert b"Activate CAS window" in live.data
+    assert b"Deactivate CAS window" in live.data
     assert b"15:27" in live.data
     bt = c.get("/backtest")
     assert bt.status_code == 200
     assert b"Run WS backtest" in bt.data
     assert b"does not place live orders" in bt.data
+
+    # Activate once → button state reflected; second activate is unchanged
+    r1 = c.post("/api/activate", json={})
+    assert r1.status_code == 200
+    assert r1.get_json()["unchanged"] is False
+    r2 = c.post("/api/activate", json={})
+    assert r2.get_json()["unchanged"] is True
+    assert r2.get_json()["state"]["activated"] is True
+    live2 = c.get("/")
+    assert b"disabled" in live2.data
+    r3 = c.post("/api/deactivate", json={})
+    assert r3.get_json()["unchanged"] is False
+    r4 = c.post("/api/deactivate", json={})
+    assert r4.get_json()["unchanged"] is True

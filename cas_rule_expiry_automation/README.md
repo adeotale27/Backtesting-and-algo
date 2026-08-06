@@ -46,10 +46,13 @@ Open **http://127.0.0.1:5030**
 
 1. Save today’s `access_token` (Kite API button)
 2. Set **lots** on the Live page (each leg CE + PE)
-3. On Tuesday or Thursday → **Arm for today**
+3. On Tuesday or Thursday → **Activate CAS window**
 4. Engine pre-warms strikes, opens WebSocket from **15:27** IST, fires on CAS close
 
 Use the top nav **Backtest** tab for historical replays (separate from live size).
+
+Activate / Deactivate are mutually exclusive and persist across page refresh
+(auto-clears on a new IST day).
 
 ## Configurable knobs (`config.ini`)
 

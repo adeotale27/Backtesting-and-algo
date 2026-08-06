@@ -27,7 +27,7 @@
         </span>
       </button>
       <span id="b-live" class="badge {{ 'live' if cfg.live_trading else 'warn' }}">{{ 'LIVE ORDERS' if cfg.live_trading else 'PAPER' }}</span>
-      <span id="b-arm" class="badge {{ 'on' if status.state.activated else '' }}">{{ 'ARMED' if status.state.activated else 'IDLE' }}</span>
+      <span id="b-arm" class="badge {{ 'on' if status.state.activated else '' }}">{{ 'CAS ON' if status.state.activated else 'CAS OFF' }}</span>
       <span id="b-ws" class="badge {{ 'on' if status.ws.connected else '' }}">WS {{ 'ON' if status.ws.connected else 'OFF' }}</span>
       <span id="b-day" class="badge {{ 'on' if day.is_expiry_day else '' }}">{{ day.weekday }} · {{ 'EXPIRY' if day.is_expiry_day else 'NO EXPIRY' }}</span>
       <a href="{{ url_for('logout') }}">Logout</a>
@@ -68,8 +68,8 @@
       <h2>How this works (simple)</h2>
       <ol class="steps">
         <li><strong>Paper / Live</strong> — Paper = practice (no real money). Live = real Zerodha <em>MARKET</em> sells.</li>
-        <li><strong>Arm for today</strong> — starts watching. On expiry day, the instant CAS close prints (~15:28–15:30), CE + PE are <strong>MARKET SOLD together</strong> (parallel, milliseconds).</li>
-        <li><strong>Disarm</strong> — stops watching. Nothing will sell.</li>
+        <li><strong>Activate CAS window</strong> — starts watching. On expiry day, the instant CAS close prints (~15:28–15:30), CE + PE are <strong>MARKET SOLD together</strong> (parallel, milliseconds).</li>
+        <li><strong>Deactivate</strong> — stops watching. Nothing will sell.</li>
       </ol>
       <div id="mode-big" class="mode-banner {{ 'live' if cfg.live_trading else 'paper' }}">
         {{ 'LIVE — real Zerodha orders' if cfg.live_trading else 'PAPER — no real orders' }}
@@ -90,8 +90,16 @@
       </div>
 
       <div class="actions stack">
-        <button class="btn-primary btn-lg" id="btn-arm" onclick="arm()">Arm for today — start watching</button>
-        <button class="btn-ghost" id="btn-disarm" onclick="disarm()">Disarm — stop watching</button>
+        <button class="btn-primary btn-lg" id="btn-activate"
+                onclick="activateCas()"
+                {% if status.state.activated %}disabled{% endif %}>
+          Activate CAS window
+        </button>
+        <button class="btn-danger btn-lg" id="btn-deactivate"
+                onclick="deactivateCas()"
+                {% if not status.state.activated %}disabled{% endif %}>
+          Deactivate CAS window
+        </button>
       </div>
       <div class="actions">
         <button class="btn-warn" onclick="toggleLive()">
@@ -202,19 +210,36 @@
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
-    function updateArmHint(st) {
-      const el = $("arm-hint");
-      if (!el) return;
-      if (!st.activated) {
-        el.textContent = "Status: IDLE — strategy is not watching. Click “Arm for today” on an expiry day.";
-        return;
+    let casBusy = false;
+
+    function setCasButtons(activated) {
+      const on = !!activated;
+      const btnOn = $("btn-activate");
+      const btnOff = $("btn-deactivate");
+      if (btnOn) {
+        btnOn.disabled = on || casBusy;
+        btnOn.setAttribute("aria-disabled", btnOn.disabled ? "true" : "false");
       }
-      el.textContent = "Status: ARMED — watching WebSocket. When CAS close prints in the window, CE+PE will be sold automatically.";
+      if (btnOff) {
+        btnOff.disabled = (!on) || casBusy;
+        btnOff.setAttribute("aria-disabled", btnOff.disabled ? "true" : "false");
+      }
+      $("b-arm").textContent = on ? "CAS ON" : "CAS OFF";
+      $("b-arm").className = "badge " + (on ? "on" : "");
+      const el = $("arm-hint");
+      if (el) {
+        el.textContent = on
+          ? "Status: CAS WINDOW ACTIVE — watching WebSocket. When close prints (15:27–15:35), CE+PE MARKET SELL automatically. Survives page refresh."
+          : "Status: CAS WINDOW OFF — not watching. Click “Activate CAS window” on an expiry day.";
+      }
+    }
+
+    function updateArmHint(st) {
+      setCasButtons(st && st.activated);
     }
 
     function render(st, ws) {
-      $("b-arm").textContent = st.activated ? "ARMED" : "IDLE";
-      $("b-arm").className = "badge " + (st.activated ? "on" : "");
+      setCasButtons(st.activated);
       $("b-ws").textContent = "WS " + (ws.connected ? "ON" : "OFF");
       $("b-ws").className = "badge " + (ws.connected ? "on" : "");
       $("v-ticks").textContent = ws.ticks_received || 0;
@@ -222,7 +247,6 @@
       $("ltp-sensex").textContent = (st.last_ltp && st.last_ltp.SENSEX) || "—";
       $("close-nifty").textContent = (st.last_close && st.last_close.NIFTY) || "—";
       $("close-sensex").textContent = (st.last_close && st.last_close.SENSEX) || "—";
-      updateArmHint(st);
       $("events").innerHTML = (st.events || []).slice().reverse().slice(0, 40).map(e =>
         `<div><span class="kind">${e.kind}</span> · ${e.ts} · ${e.message}</div>`
       ).join("") || "<div>No events yet</div>";
@@ -237,7 +261,7 @@
           <td><strong>${t.detect_to_done_ms ?? "—"}</strong></td>
           <td>${t.source||""}</td>
         </tr>`
-      ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No CAS detections yet — arm on expiry day</td></tr>`;
+      ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No CAS detections yet — activate on expiry day</td></tr>`;
       $("fills").innerHTML = (st.fills || []).map(f =>
         `<tr>
           <td>${(f.ts||"").slice(11,23)}</td><td>${f.index}</td><td>${f.opt_type}</td>
@@ -254,6 +278,12 @@
         setModeBadges(!!d.config.live_trading);
         const lbl = $("toggle-live-label");
         if (lbl) lbl.textContent = d.config.live_trading ? "PAPER" : "LIVE orders";
+        if (d.config && d.config.watch_start) {
+          const end = (d.config.watch_end || "").slice(0, 5);
+          const start = (d.config.watch_start || "").slice(0, 5);
+          const w = $("v-window");
+          if (w) w.textContent = start + "–" + end + " IST";
+        }
         if (d.config && typeof d.config.has_token === "boolean") {
           const badge = $("kite-token-badge");
           badge.textContent = d.config.has_token ? "TOKEN SET" : "TOKEN NEEDED";
@@ -262,26 +292,50 @@
       } catch (_) {}
     }
 
-    async function arm() {
+    async function activateCas() {
+      if (casBusy || ($("btn-activate") && $("btn-activate").disabled)) return;
+      casBusy = true;
+      setCasButtons(true); // optimistic lock — only deactivate clickable after success
+      $("btn-activate").disabled = true;
+      $("btn-deactivate").disabled = true;
       try {
         const d = await api("/api/activate", { method: "POST", body: "{}" });
         render(d.state, { connected: false, ticks_received: 0 });
-        msg("Armed — watching for CAS close in the window", "ok");
+        msg(d.message || "CAS window activated", "ok");
         refresh();
-      } catch (e) { msg(e.message, "err"); }
+      } catch (e) {
+        msg(e.message, "err");
+        refresh();
+      } finally {
+        casBusy = false;
+        setCasButtons(($("b-arm").textContent === "CAS ON"));
+        refresh();
+      }
     }
-    async function disarm() {
+    async function deactivateCas() {
+      if (casBusy || ($("btn-deactivate") && $("btn-deactivate").disabled)) return;
+      casBusy = true;
+      $("btn-activate").disabled = true;
+      $("btn-deactivate").disabled = true;
       try {
         const d = await api("/api/deactivate", { method: "POST", body: "{}" });
         render(d.state, { connected: false, ticks_received: 0 });
-        msg("Disarmed — no sells will happen", "ok");
-      } catch (e) { msg(e.message, "err"); }
+        msg(d.message || "CAS window deactivated", "ok");
+        refresh();
+      } catch (e) {
+        msg(e.message, "err");
+        refresh();
+      } finally {
+        casBusy = false;
+        refresh();
+      }
     }
     async function resetDay() {
       try {
         const d = await api("/api/reset", { method: "POST", body: "{}" });
         render(d.state, { connected: false, ticks_received: 0 });
-        msg("Day flags reset", "ok");
+        msg("Day flags reset (activation unchanged)", "ok");
+        refresh();
       } catch (e) { msg(e.message, "err"); }
     }
     async function toggleLive() {

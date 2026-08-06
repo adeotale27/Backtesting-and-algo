@@ -69,6 +69,9 @@ class StateStore:
                 kwargs[k] = raw.get(k, getattr(defaults, k))
             self._s = RuntimeState(**kwargs)
             today = get_ist_now().date().isoformat()
+            if self._s.activated and self._s.activated_at and not str(self._s.activated_at).startswith(today):
+                self._s.activated = False
+                self._s.activated_at = None
             if self._s.fills and not str(self._s.fills[0].get("ts", "")).startswith(today):
                 self._s.fired_indexes = []
                 self._s.fills = []
@@ -85,27 +88,53 @@ class StateStore:
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
+            self._ensure_same_day()
             return self._s.to_dict()
 
     def activate(self, by: str = "admin") -> Dict[str, Any]:
         with self._lock:
+            self._ensure_same_day()
+            if self._s.activated:
+                # Idempotent — already active; do not spam events
+                return {**self._s.to_dict(), "unchanged": True}
             self._s.activated = True
             self._s.activated_at = get_ist_now().isoformat()
             self._s.last_error = None
-            self._event("activated", f"by {by}")
+            self._event("activated", f"CAS window activated by {by}")
             self._persist()
-            return self._s.to_dict()
+            return {**self._s.to_dict(), "unchanged": False}
 
     def deactivate(self, by: str = "admin") -> Dict[str, Any]:
         with self._lock:
+            self._ensure_same_day()
+            if not self._s.activated:
+                return {**self._s.to_dict(), "unchanged": True}
             self._s.activated = False
-            self._event("deactivated", f"by {by}")
+            self._event("deactivated", f"CAS window deactivated by {by}")
             self._persist()
-            return self._s.to_dict()
+            return {**self._s.to_dict(), "unchanged": False}
 
     def is_activated(self) -> bool:
         with self._lock:
+            self._ensure_same_day()
             return self._s.activated
+
+    def _ensure_same_day(self) -> None:
+        """Drop yesterday's arm state so a leftover ACTIVATED does not fire next day."""
+        today = get_ist_now().date().isoformat()
+        at = self._s.activated_at or ""
+        if self._s.activated and at and not str(at).startswith(today):
+            self._s.activated = False
+            self._s.activated_at = None
+            self._event("auto_deactivated", "new IST day — CAS window reset")
+            self._persist()
+        # Also clear stale fills/fires if from a prior day
+        if self._s.fills and not str(self._s.fills[0].get("ts", "")).startswith(today):
+            self._s.fired_indexes = []
+            self._s.fills = []
+            self._s.last_close = {}
+            self._s.timings = []
+            self._persist()
 
     def has_fired(self, index: str) -> bool:
         with self._lock:
