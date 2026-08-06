@@ -1,0 +1,67 @@
+[kite]
+api_key = YOUR_API_KEY
+api_secret = YOUR_API_SECRET
+access_token =
+
+[admin]
+username = admin
+password = CHANGE_ME
+
+[strategy]
+# Lots to sell on EACH leg (CE and PE). Change this to size the trade.
+lots = 1
+# Strike steps away from ATM (1 = ATM+1 CE and ATM-1 PE)
+ce_otm_steps = 1
+pe_otm_steps = 1
+# Zerodha product: NRML | MIS
+product = NRML
+# Only trade on weekly expiry weekdays (Tue=NIFTY, Thu=SENSEX)
+expiry_only = true
+# nifty_weekday: 0=Mon … 6=Sun  (default 1 = Tuesday)
+nifty_expiry_weekday = 1
+# sensex_weekday default 3 = Thursday
+sensex_expiry_weekday = 3
+
+[latency]
+# KiteTicker mode: ltp | quote | full
+# full = push ticks whenever LTP/depth/OHLC fields change (not a 1s poll).
+# CAS fire uses ohlc.close flip on that push — sell starts on that same tick.
+ws_mode = full
+# Fire the instant WebSocket ohlc.close flips from morning baseline (CAS print)
+fire_on_close_update = true
+# Optional: also fire from last_price inside the window (usually leave false)
+fire_on_ltp_in_window = false
+# Pre-warm option contracts this many minutes before watch_start
+prewarm_minutes = 12
+# Max ms to spend resolving strikes at fire time (uses prewarm cache first)
+strike_resolve_budget_ms = 5
+
+[cas_window]
+# IST — start 1 minute BEFORE Order Entry II so a 15:28:00 print is never missed.
+# Matching continues ~15:30–15:35.
+watch_start = 15:27:00
+watch_end = 15:35:00
+
+[safety]
+live_trading = false
+# Paper mode: stream real Kite ticks + dry MARKET path even on non-expiry days
+# (LIVE money still waits for Tue NIFTY / Thu SENSEX when expiry_only=true)
+paper_any_day = true
+
+[server]
+host = 127.0.0.1
+port = 5030
+
+[backtest]
+default_capital = 500000
+# Expiry-afternoon IV (%) used in BS; raised vs calm IV because expiry is jumpy
+assumed_iv = 35.0
+# Optional synthetic OTM premium floor (₹). Keep 0 — use real Kite option
+# prices when available. Only set >0 for offline demos without market data.
+assumed_cas_otm_premium = 0.0
+# Minutes of time value left when we sell at CAS detect
+entry_time_minutes = 15.0
+# Simulated WebSocket tick interval when replaying candles (ms)
+tick_interval_ms = 100
+# Modeled detect→MARKET-ack latency (ms), like live Zerodha place_order RTT
+fill_latency_ms = 8.0

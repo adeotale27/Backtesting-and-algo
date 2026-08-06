@@ -15,7 +15,8 @@ built on the Zerodha Kite Connect API.
 - **Live positions** for NIFTY/SENSEX options with delta/theta Greeks and
   margin estimates (embedded Black-Scholes, no external services).
 - **Automated strategies**: gap-trading (Wave Extractor), single-leg
-  delta-rebalanced Survivor, expiry-day Stoch-RSI trades.
+  delta-rebalanced Survivor, expiry-day Stoch-RSI trades, and the standalone
+  [CAS Expiry](modules/cas-expiry.md) Closing Auction Session algo.
 - **Risk tooling**: GTT monitor, duplicate-order detection, position guard,
   early-exit GTT placement.
 - **Trade journal** with FIFO pairing, per-algorithm P&L attribution, and
