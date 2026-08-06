@@ -1,0 +1,51 @@
+[kite]
+# Zerodha Kite Connect API credentials.
+# Paste a fresh access_token daily (tokens expire at ~06:00 IST next morning),
+# or leave blank and set it via the admin UI / CLI after OAuth login.
+api_key = YOUR_API_KEY
+api_secret = YOUR_API_SECRET
+access_token =
+
+[admin]
+# Simple password gate for the admin UI (activate / credentials / fire).
+username = admin
+password = CHANGE_ME
+
+[strategy]
+# Underlying: NIFTY | SENSEX | BOTH
+index = NIFTY
+# How many lots to sell of each leg (ATM+1 CE and ATM-1 PE)
+lots = 1
+# Product type sent to Zerodha: NRML (carry) or MIS (intraday)
+product = NRML
+# Strike offsets from ATM in strike-steps (default 1 = ATM±1)
+ce_offset = 1
+pe_offset = 1
+# Only run on days when the selected index has options expiry today
+require_expiry_today = true
+
+[cas_window]
+# IST times for the Closing Auction Session watch window.
+# Order Entry Session II randomly closes between 15:28 and 15:30;
+# matching / close publication continues until ~15:35.
+watch_start = 15:28:00
+watch_end = 15:35:00
+# High-frequency poll interval while hunting for the close (seconds)
+poll_interval_ms = 50
+# How often to poll outside the CAS window while activated (seconds)
+idle_poll_seconds = 5
+
+[safety]
+# DRY-RUN by default. Orders are logged but NOT sent to Zerodha until
+# you set live_trading = true after verifying dry-run behaviour.
+live_trading = false
+
+[server]
+host = 127.0.0.1
+port = 5020
+
+[backtest]
+# Default capital for the CAS backtest UI / CLI
+default_capital = 500000
+# Assumed annualised IV (%) used to price near-ATM options on expiry day
+assumed_iv = 18.0

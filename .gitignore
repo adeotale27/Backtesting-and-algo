@@ -1,5 +1,7 @@
 # --- secrets & runtime state: NEVER commit these ---
 configfile.ini
+cas_expiry/config.ini
+cas_expiry/runtime_state.json
 .flask_secret
 .kite_session_token*
 *.pem
