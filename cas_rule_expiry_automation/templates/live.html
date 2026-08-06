@@ -12,8 +12,8 @@
 <body>
   <header class="top">
     <div class="brand">
-      CAS Rule · Live
-      <small>Expiry day only · Tue NIFTY · Thu SENSEX</small>
+      CAS Rule
+      <small>Live trading · Tue NIFTY · Thu SENSEX</small>
     </div>
     <nav class="nav">
       <a class="nav-link on" href="{{ url_for('live_page') }}">Live</a>
@@ -86,7 +86,7 @@
         <div><div class="k">Today</div><div class="v">{{ day.date }} · {{ day.weekday }}</div></div>
         <div><div class="k">Will trade</div><div class="v" id="v-indexes">{{ day.indexes|join(', ') or '— (not expiry)' }}</div></div>
         <div><div class="k">Watch window</div><div class="v" id="v-window">{{ cfg.watch_start.strftime('%H:%M') }}–{{ cfg.watch_end.strftime('%H:%M') }} IST</div></div>
-        <div><div class="k">WS ticks</div><div class="v" id="v-ticks">{{ status.ws.ticks_received }}</div></div>
+        <div><div class="k">Feed ticks</div><div class="v" id="v-ticks">{{ status.ws.ticks_received }}</div></div>
       </div>
 
       <div class="actions stack">

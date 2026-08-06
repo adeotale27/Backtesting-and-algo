@@ -102,10 +102,9 @@ UI panel: **CAS → Sell latency timeline**. Backtest table includes the same co
 4. **Fire path** resolves from cache + `place_order` MARKET SELL — no quote call  
 5. Deploy the process on a **Mumbai** cloud VM for minimum RTT to Zerodha  
 
-## WebSocket backtest
+## Backtest
 
-The backtest expands minute (or synthetic) candles into a tick stream and
-replays them through the **same** `TickBus` → `on_ticks` contract as live:
+Replays expiry days through the **same** detect → MARKET sell path as live:
 
 ```bash
 python -c "
@@ -117,8 +116,8 @@ print(r.num_trades, r.ws_ticks_total, r.total_pnl, r.total_return_pct)
 "
 ```
 
-Or use the **WebSocket backtest** panel in the UI (configurable **lots**,
-optional force close, and CE/PE sold timestamps).
+Or use the **Backtest** page in the UI (configurable lots, optional force close,
+CE/PE sold timestamps).
 
 ## Layout
 

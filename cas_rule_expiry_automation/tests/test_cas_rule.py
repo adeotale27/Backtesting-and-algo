@@ -346,8 +346,9 @@ def test_app_login_page(tmp_path):
     assert b"15:27" in live.data
     bt = c.get("/backtest")
     assert bt.status_code == 200
-    assert b"Run WS backtest" in bt.data
-    assert b"does not place live orders" in bt.data
+    assert b"Run backtest" in bt.data
+    assert b"WebSocket backtest" not in bt.data
+    assert b"Backtest" in bt.data
 
     # Activate once → button state reflected; second activate is unchanged
     r1 = c.post("/api/activate", json={})

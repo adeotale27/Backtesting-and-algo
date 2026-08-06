@@ -556,9 +556,8 @@ def run_ws_backtest(
     trade_lots = max(int(lots if lots is not None else cfg.lots), 1)
     overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
-        "Ticks replayed through the same WebSocket TickBus contract as live trading.",
-        "cas_detected_at is inferred from the index CAS print bar (~15:29:30), not random.",
-        "ce_sold_at / pe_sold_at are execution timestamps after CAS detect.",
+        "Same detect → MARKET sell path as Live (replayed historically).",
+        "CAS detect inferred from the index print bar (~15:29:30).",
         (
             "Strike rule: spot<ATM → sell ATM CE + (ATM−N) PE; "
             "spot>ATM → sell (ATM+N) CE + ATM PE."
