@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Backtest · CAS Rule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      CAS Rule · Backtest
+      <small>Replay only · does not place live orders</small>
+    </div>
+    <nav class="nav">
+      <a class="nav-link" href="{{ url_for('live_page') }}">Live</a>
+      <a class="nav-link on" href="{{ url_for('backtest_page') }}">Backtest</a>
+    </nav>
+    <div class="badges">
+      <span class="badge warn">BACKTEST</span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card wide">
+      <h2>WebSocket backtest</h2>
+      <p class="hint">
+        Replays ticks through the same path as live. Separate from Live page —
+        changing lots here does <strong>not</strong> change live trade size.
+        Detect ~15:29:30 from index CAS bar; entry premium = option minute close.
+      </p>
+      <div class="row-4">
+        <div><label>Start</label><input id="bt_start" type="date" /></div>
+        <div><label>End</label><input id="bt_end" type="date" /></div>
+        <div><label>Capital</label><input id="bt_capital" type="number" value="{{ cfg.default_capital|int }}" /></div>
+        <div><label>Lots (each leg)</label><input id="bt_lots" type="number" min="1" value="{{ cfg.lots }}" title="10 = 10 CE + 10 PE" /></div>
+      </div>
+      <div class="row" style="margin-top:0.5rem">
+        <div><label>Force close (optional)</label><input id="bt_force_close" type="number" step="0.01" placeholder="e.g. 78954.76" /></div>
+        <div>
+          <label>Force close applies to</label>
+          <select id="bt_force_index">
+            <option value="SENSEX">SENSEX</option>
+            <option value="NIFTY">NIFTY</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn-primary btn-lg" onclick="runBacktest()">Run WS backtest</button>
+      </div>
+      <p class="hint" style="margin-top:0.6rem">
+        <strong>Lots</strong> = per side (10 → 10 CE + 10 PE hedged).
+        Spot &lt; ATM → ATM CE + (ATM−N) PE · Spot &gt; ATM → (ATM+N) CE + ATM PE.
+      </p>
+      <div id="msg"></div>
+      <div class="kpis" id="bt-kpis"></div>
+      <div id="bt-notes" class="hint"></div>
+      <div style="overflow:auto;max-height:420px">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Index</th><th>Close</th><th>ATM</th>
+              <th>CE strike</th><th>PE strike</th>
+              <th>CE prem</th><th>PE prem</th>
+              <th>CE exit</th><th>PE exit</th>
+              <th>Lots</th><th>Qty/leg</th>
+              <th>CAS detected</th><th>CE sold at</th><th>PE sold at</th>
+              <th>→CE ms</th><th>→PE ms</th>
+              <th>Total decay</th><th>P&amp;L</th>
+              <th>Prem src</th>
+            </tr>
+          </thead>
+          <tbody id="bt-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    async function runBacktest() {
+      try {
+        msg("Running backtest…", "");
+        const d = await api("/api/backtest", { method: "POST", body: JSON.stringify({
+          start: $("bt_start").value || null,
+          end: $("bt_end").value || null,
+          capital: Number($("bt_capital").value || 500000),
+          lots: Number($("bt_lots").value || 1),
+          force_close: $("bt_force_close").value || null,
+          force_index: $("bt_force_index").value || "SENSEX",
+        })});
+        const r = d.result;
+        $("bt-kpis").innerHTML = [
+          ["Return", r.total_return_pct.toFixed(2) + "%"],
+          ["P&L", "₹" + r.total_pnl.toLocaleString("en-IN")],
+          ["Trades", r.num_trades],
+          ["Win rate", r.win_rate_pct.toFixed(1) + "%"],
+          ["Max DD", r.max_drawdown_pct.toFixed(2) + "%"],
+          ["WS ticks", r.ws_ticks_total],
+          ["Avg detect→done", (r.avg_detect_to_done_ms || 0).toFixed(2) + " ms"],
+          ["Final", "₹" + r.final_capital.toLocaleString("en-IN")],
+        ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+        $("bt-notes").textContent = (r.notes || []).slice(0, 5).join(" · ");
+        $("bt-rows").innerHTML = (r.trades || []).map(t =>
+          `<tr>
+            <td>${t.entry_date}</td><td>${t.index}</td><td>${t.close_price}</td><td>${t.atm}</td>
+            <td><strong>${t.ce_strike}</strong></td><td><strong>${t.pe_strike}</strong></td>
+            <td>${t.ce_premium}</td><td>${t.pe_premium}</td>
+            <td>${t.ce_settlement}</td><td>${t.pe_settlement}</td>
+            <td>${t.lots ?? Math.round((t.quantity||0)/(t.lot_size||1))}</td><td>${t.quantity}</td>
+            <td title="${t.cas_detected_at||""}">${(t.cas_detected_at||"—").replace("T"," ").slice(11,23)}</td>
+            <td title="${t.ce_sold_at||""}"><strong>${(t.ce_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
+            <td title="${t.pe_sold_at||""}"><strong>${(t.pe_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
+            <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td>
+            <td><strong>₹${Number(t.total_decay ?? t.pnl ?? 0).toLocaleString("en-IN")}</strong></td>
+            <td>${t.pnl}</td>
+            <td>${t.premium_source||""}</td>
+          </tr>`
+        ).join("") || "<tr><td colspan=20>No expiry days</td></tr>";
+        msg("Backtest complete", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    (function initDates() {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 3);
+      $("bt_end").value = end.toISOString().slice(0, 10);
+      $("bt_start").value = start.toISOString().slice(0, 10);
+    })();
+  </script>
+</body>
+</html>

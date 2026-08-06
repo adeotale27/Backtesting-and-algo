@@ -100,6 +100,7 @@ class StrategyEngine:
 
             if (
                 self.config.fire_on_close_update
+                and in_cas
                 and baseline
                 and ohlc_close
                 and abs(ohlc_close - baseline) > 1e-6

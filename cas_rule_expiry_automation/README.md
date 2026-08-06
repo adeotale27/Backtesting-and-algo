@@ -43,10 +43,12 @@ python -m cas_rule_expiry_automation
 
 Open **http://127.0.0.1:5030**
 
-1. Save Kite credentials / today’s `access_token`
-2. Set **lots** and OTM steps
-3. On Tuesday or Thursday → **Activate**
-4. Engine pre-warms strikes ~12 min before 15:28, opens WebSocket, fires on close
+1. Save today’s `access_token` (Kite API button)
+2. Set **lots** on the Live page (each leg CE + PE)
+3. On Tuesday or Thursday → **Arm for today**
+4. Engine pre-warms strikes, opens WebSocket from **15:27** IST, fires on CAS close
+
+Use the top nav **Backtest** tab for historical replays (separate from live size).
 
 ## Configurable knobs (`config.ini`)
 
@@ -65,6 +67,10 @@ ws_mode = full
 fire_on_close_update = true
 fire_on_ltp_in_window = false
 prewarm_minutes = 12
+
+[cas_window]
+watch_start = 15:27:00     # 1 min early so 15:28:00 print is never missed
+watch_end = 15:35:00
 ```
 
 All of `lots` / OTM steps / product are also editable in the UI.

@@ -35,8 +35,9 @@ prewarm_minutes = 12
 strike_resolve_budget_ms = 5
 
 [cas_window]
-# IST — Order Entry II ends randomly 15:28–15:30; matching ~15:30–15:35
-watch_start = 15:28:00
+# IST — start 1 minute BEFORE Order Entry II so a 15:28:00 print is never missed.
+# Matching continues ~15:30–15:35.
+watch_start = 15:27:00
 watch_end = 15:35:00
 
 [safety]

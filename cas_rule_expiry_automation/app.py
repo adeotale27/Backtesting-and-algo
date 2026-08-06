@@ -76,7 +76,7 @@ def login_post():
     ):
         session["ok"] = True
         session["user"] = cfg.admin_username
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("live_page"))
     return render_template("login.html", error="Invalid credentials"), 401
 
 
@@ -99,19 +99,41 @@ def _creds_flags(cfg) -> dict:
     }
 
 
-@app.get("/")
-@login_required
-def dashboard():
+def _page_ctx():
     cfg = _cfg()
     eng = get_engine()
-    return render_template(
-        "dashboard.html",
+    return dict(
         cfg=cfg,
         creds=_creds_flags(cfg),
         day=describe_today(cfg),
         upcoming=next_expiry_dates(cfg, count=6),
         status=eng.status(),
     )
+
+
+@app.get("/")
+@login_required
+def live_page():
+    return render_template("live.html", **_page_ctx())
+
+
+@app.get("/backtest")
+@login_required
+def backtest_page():
+    return render_template("backtest.html", **_page_ctx())
+
+
+# Backward-compatible alias
+@app.get("/live")
+@login_required
+def live_alias():
+    return redirect(url_for("live_page"))
+
+
+@app.get("/dashboard")
+@login_required
+def dashboard_alias():
+    return redirect(url_for("live_page"))
 
 
 @app.get("/api/status")
@@ -316,7 +338,7 @@ def main() -> None:
     try:
         from waitress import serve
 
-        serve(app, host=cfg.host, port=cfg.port, threads=4)
+        serve(app, host=cfg.host, port=cfg.port, threads=8)
     except ImportError:
         app.run(host=cfg.host, port=cfg.port, threaded=True, use_reloader=False)
 

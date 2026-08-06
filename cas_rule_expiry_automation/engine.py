@@ -145,7 +145,8 @@ class AutomationEngine:
                 now = get_ist_now()
                 # Pre-warm + WS connect ahead of the CAS window
                 prewarm_start = _shift(self.config.watch_start, -self.config.prewarm_minutes)
-                if time_only(now) >= prewarm_start:
+                tnow = time_only(now)
+                if tnow >= prewarm_start:
                     if not strategy.cache.ready_for:
                         try:
                             strategy.capture_baselines()
@@ -154,8 +155,13 @@ class AutomationEngine:
                     if not self._ws_started:
                         self._start_ws(indexes)
 
-                # After window + all fired → idle WS can stay up for monitoring
-                time.sleep(0.5)
+                # Tight poll near the fire window; idle otherwise
+                if in_window(now, self.config.watch_start, self.config.watch_end):
+                    time.sleep(0.05)
+                elif tnow >= prewarm_start:
+                    time.sleep(0.2)
+                else:
+                    time.sleep(0.5)
             except Exception as exc:
                 logger.exception("engine loop: %s", exc)
                 self.store.set_error(str(exc))

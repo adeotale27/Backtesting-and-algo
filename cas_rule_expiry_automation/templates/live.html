@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Live · CAS Rule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      CAS Rule · Live
+      <small>Expiry day only · Tue NIFTY · Thu SENSEX</small>
+    </div>
+    <nav class="nav">
+      <a class="nav-link on" href="{{ url_for('live_page') }}">Live</a>
+      <a class="nav-link" href="{{ url_for('backtest_page') }}">Backtest</a>
+    </nav>
+    <div class="badges">
+      <button type="button" id="kite-btn" class="kite-btn" onclick="toggleKitePanel()" title="Update daily access token">
+        Kite API
+        <span id="kite-mode" class="kite-mode {{ 'live' if cfg.live_trading else 'offline' }}">
+          {{ 'LIVE' if cfg.live_trading else 'OFFLINE' }}
+        </span>
+      </button>
+      <span id="b-live" class="badge {{ 'live' if cfg.live_trading else 'warn' }}">{{ 'LIVE ORDERS' if cfg.live_trading else 'PAPER' }}</span>
+      <span id="b-arm" class="badge {{ 'on' if status.state.activated else '' }}">{{ 'ARMED' if status.state.activated else 'IDLE' }}</span>
+      <span id="b-ws" class="badge {{ 'on' if status.ws.connected else '' }}">WS {{ 'ON' if status.ws.connected else 'OFF' }}</span>
+      <span id="b-day" class="badge {{ 'on' if day.is_expiry_day else '' }}">{{ day.weekday }} · {{ 'EXPIRY' if day.is_expiry_day else 'NO EXPIRY' }}</span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="kite-panel" class="card collapse wide">
+      <button type="button" class="collapse-head" onclick="toggleKitePanel()">
+        <h2><span class="chev">▸</span> Kite API · paste today’s token</h2>
+        <span class="badge {{ 'on' if creds.has_token else 'warn' }}" id="kite-token-badge">
+          {{ 'TOKEN SET' if creds.has_token else 'TOKEN NEEDED' }}
+        </span>
+      </button>
+      <div class="collapse-body">
+        <p class="hint">Key &amp; secret stay saved. Each morning paste only a fresh <strong>access token</strong>.</p>
+        <label>Access token</label>
+        <input id="access_token" type="password" autocomplete="off"
+               placeholder="{{ 'token saved — paste new to replace' if creds.has_token else 'paste today’s access_token' }}" />
+        <label>Request token (optional)</label>
+        <input id="request_token" autocomplete="off" placeholder="from Kite login redirect" />
+        <div class="actions">
+          <button class="btn-primary" onclick="saveCreds()">Save token</button>
+          <button class="btn-ghost" onclick="openLogin()">Kite login URL</button>
+        </div>
+        <button type="button" class="adv-toggle" id="adv-toggle" onclick="toggleAdvKeys()">Show API key &amp; secret (masked)</button>
+        <div id="adv-keys" class="adv-block">
+          <p class="hint">Leave blank to keep saved values.</p>
+          <label>API key</label>
+          <input id="api_key" type="password" autocomplete="off" placeholder="{{ '•••••••• (saved)' if creds.has_key else 'api_key' }}" />
+          <label>API secret</label>
+          <input id="api_secret" type="password" autocomplete="off" placeholder="{{ '•••••••• (saved)' if creds.has_secret else 'api_secret' }}" />
+        </div>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <h2>How this works (simple)</h2>
+      <ol class="steps">
+        <li><strong>Paper / Live</strong> — Paper = practice (no real money). Live = real Zerodha market sells.</li>
+        <li><strong>Arm for today</strong> — starts watching. On expiry day, when CAS close prints (~15:28–15:30), it sells OTM CE + PE.</li>
+        <li><strong>Disarm</strong> — stops watching. Nothing will sell.</li>
+      </ol>
+      <div id="mode-big" class="mode-banner {{ 'live' if cfg.live_trading else 'paper' }}">
+        {{ 'LIVE — real Zerodha orders' if cfg.live_trading else 'PAPER — no real orders' }}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Today’s run</h2>
+      <p class="hint">
+        Watch window starts at <strong>{{ cfg.watch_start.strftime('%H:%M') }}</strong> IST
+        (1 min early so a 15:28:00 print is never missed) until {{ cfg.watch_end.strftime('%H:%M') }}.
+      </p>
+      <div class="kv">
+        <div><div class="k">Today</div><div class="v">{{ day.date }} · {{ day.weekday }}</div></div>
+        <div><div class="k">Will trade</div><div class="v" id="v-indexes">{{ day.indexes|join(', ') or '— (not expiry)' }}</div></div>
+        <div><div class="k">Watch window</div><div class="v">{{ cfg.watch_start.strftime('%H:%M') }}–{{ cfg.watch_end.strftime('%H:%M') }} IST</div></div>
+        <div><div class="k">WS ticks</div><div class="v" id="v-ticks">{{ status.ws.ticks_received }}</div></div>
+      </div>
+
+      <div class="actions stack">
+        <button class="btn-primary btn-lg" id="btn-arm" onclick="arm()">Arm for today — start watching</button>
+        <button class="btn-ghost" id="btn-disarm" onclick="disarm()">Disarm — stop watching</button>
+      </div>
+      <div class="actions">
+        <button class="btn-warn" onclick="toggleLive()">
+          Switch to <span id="toggle-live-label">{{ 'PAPER' if cfg.live_trading else 'LIVE orders' }}</span>
+        </button>
+        <button class="btn-ghost" onclick="resetDay()">Reset day flags</button>
+      </div>
+      <div id="msg"></div>
+      <p class="hint" id="arm-hint" style="margin-top:0.6rem"></p>
+    </section>
+
+    <section class="card">
+      <h2>Trade size (live)</h2>
+      <p class="hint"><strong>Lots</strong> = size on <em>each</em> side. 10 lots → sell 10 CE + 10 PE (hedged).</p>
+      <div class="row-3">
+        <div>
+          <label>Lots per leg</label>
+          <input id="lots" type="number" min="1" value="{{ cfg.lots }}" />
+        </div>
+        <div>
+          <label>CE OTM steps</label>
+          <input id="ce_steps" type="number" min="0" value="{{ cfg.ce_otm_steps }}" />
+        </div>
+        <div>
+          <label>PE OTM steps</label>
+          <input id="pe_steps" type="number" min="0" value="{{ cfg.pe_otm_steps }}" />
+        </div>
+      </div>
+      <label>Product</label>
+      <select id="product">
+        <option value="NRML" {% if cfg.product=='NRML' %}selected{% endif %}>NRML</option>
+        <option value="MIS" {% if cfg.product=='MIS' %}selected{% endif %}>MIS</option>
+      </select>
+      <div class="actions">
+        <button class="btn-primary" onclick="saveSettings()">Save live size</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Prices</h2>
+      <div class="kv">
+        <div><div class="k">NIFTY LTP</div><div class="v" id="ltp-nifty">—</div></div>
+        <div><div class="k">SENSEX LTP</div><div class="v" id="ltp-sensex">—</div></div>
+        <div><div class="k">Last close NIFTY</div><div class="v" id="close-nifty">—</div></div>
+        <div><div class="k">Last close SENSEX</div><div class="v" id="close-sensex">—</div></div>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <h2>CAS → Sell timing</h2>
+      <p class="hint">When close prints we stamp detect time, then CE/PE sold times and milliseconds.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Index</th><th>Close</th><th>CAS detected</th>
+            <th>CE sold</th><th>PE sold</th>
+            <th>→CE ms</th><th>→PE ms</th><th>Total ms</th><th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="timings"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Event log</h2>
+      <div class="timeline" id="events"></div>
+    </section>
+
+    <section class="card">
+      <h2>Fills</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>Index</th><th>Type</th><th>Symbol</th><th>Strike</th>
+            <th>Qty</th><th>Order</th><th>Latency</th><th>Trigger</th>
+          </tr>
+        </thead>
+        <tbody id="fills"></tbody>
+      </table>
+    </section>
+
+    <section id="advanced-panel" class="card collapse wide">
+      <button type="button" class="collapse-head" onclick="toggleCollapse('advanced-panel')">
+        <h2><span class="chev">▸</span> Advanced · upcoming &amp; manual fire</h2>
+        <span class="badge">rarely used</span>
+      </button>
+      <div class="collapse-body">
+        <p class="hint">Real days need no manual close. Use only for rare tests.</p>
+        {% for e in upcoming %}
+          <span class="chip">{{ e.weekday_name }} {{ e.date.isoformat() }} · {{ e.index }}</span>
+        {% endfor %}
+        <div class="row" style="margin-top:0.75rem">
+          <div>
+            <label>Index</label>
+            <select id="fire_index"><option>NIFTY</option><option>SENSEX</option></select>
+          </div>
+          <div>
+            <label>Close price</label>
+            <input id="fire_close" type="number" step="0.05" placeholder="24850" />
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-warn" onclick="manualFire()">Fire now</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    function updateArmHint(st) {
+      const el = $("arm-hint");
+      if (!el) return;
+      if (!st.activated) {
+        el.textContent = "Status: IDLE — strategy is not watching. Click “Arm for today” on an expiry day.";
+        return;
+      }
+      el.textContent = "Status: ARMED — watching WebSocket. When CAS close prints in the window, CE+PE will be sold automatically.";
+    }
+
+    function render(st, ws) {
+      $("b-arm").textContent = st.activated ? "ARMED" : "IDLE";
+      $("b-arm").className = "badge " + (st.activated ? "on" : "");
+      $("b-ws").textContent = "WS " + (ws.connected ? "ON" : "OFF");
+      $("b-ws").className = "badge " + (ws.connected ? "on" : "");
+      $("v-ticks").textContent = ws.ticks_received || 0;
+      $("ltp-nifty").textContent = (st.last_ltp && st.last_ltp.NIFTY) || "—";
+      $("ltp-sensex").textContent = (st.last_ltp && st.last_ltp.SENSEX) || "—";
+      $("close-nifty").textContent = (st.last_close && st.last_close.NIFTY) || "—";
+      $("close-sensex").textContent = (st.last_close && st.last_close.SENSEX) || "—";
+      updateArmHint(st);
+      $("events").innerHTML = (st.events || []).slice().reverse().slice(0, 40).map(e =>
+        `<div><span class="kind">${e.kind}</span> · ${e.ts} · ${e.message}</div>`
+      ).join("") || "<div>No events yet</div>";
+      $("timings").innerHTML = (st.timings || []).slice().reverse().map(t =>
+        `<tr>
+          <td>${t.index}</td><td>${t.close_price}</td>
+          <td>${(t.cas_detected_at||"").replace("T"," ").slice(0,23)}</td>
+          <td>${(t.ce_sold_at||"—").replace("T"," ").slice(0,23)}</td>
+          <td>${(t.pe_sold_at||"—").replace("T"," ").slice(0,23)}</td>
+          <td>${t.detect_to_ce_ms ?? "—"}</td>
+          <td>${t.detect_to_pe_ms ?? "—"}</td>
+          <td><strong>${t.detect_to_done_ms ?? "—"}</strong></td>
+          <td>${t.source||""}</td>
+        </tr>`
+      ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No CAS detections yet — arm on expiry day</td></tr>`;
+      $("fills").innerHTML = (st.fills || []).map(f =>
+        `<tr>
+          <td>${(f.ts||"").slice(11,23)}</td><td>${f.index}</td><td>${f.opt_type}</td>
+          <td>${f.tradingsymbol}</td><td>${f.strike}</td><td>${f.quantity}</td>
+          <td>${f.order_id}</td><td>${(f.latency_ms||0).toFixed(1)}ms</td><td>${f.trigger}</td>
+        </tr>`
+      ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No fills</td></tr>`;
+    }
+
+    async function refresh() {
+      try {
+        const d = await api("/api/status");
+        render(d.state, d.ws);
+        setModeBadges(!!d.config.live_trading);
+        const lbl = $("toggle-live-label");
+        if (lbl) lbl.textContent = d.config.live_trading ? "PAPER" : "LIVE orders";
+        if (d.config && typeof d.config.has_token === "boolean") {
+          const badge = $("kite-token-badge");
+          badge.textContent = d.config.has_token ? "TOKEN SET" : "TOKEN NEEDED";
+          badge.className = "badge " + (d.config.has_token ? "on" : "warn");
+        }
+      } catch (_) {}
+    }
+
+    async function arm() {
+      try {
+        const d = await api("/api/activate", { method: "POST", body: "{}" });
+        render(d.state, { connected: false, ticks_received: 0 });
+        msg("Armed — watching for CAS close in the window", "ok");
+        refresh();
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function disarm() {
+      try {
+        const d = await api("/api/deactivate", { method: "POST", body: "{}" });
+        render(d.state, { connected: false, ticks_received: 0 });
+        msg("Disarmed — no sells will happen", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function resetDay() {
+      try {
+        const d = await api("/api/reset", { method: "POST", body: "{}" });
+        render(d.state, { connected: false, ticks_received: 0 });
+        msg("Day flags reset", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function toggleLive() {
+      const live = $("b-live").textContent.indexOf("LIVE") === 0;
+      if (!live && !confirm("Turn on LIVE orders? Real market sells will hit Zerodha.")) return;
+      try {
+        const d = await api("/api/live", { method: "POST", body: JSON.stringify({ enabled: !live }) });
+        setModeBadges(!!d.live_trading);
+        $("toggle-live-label").textContent = d.live_trading ? "PAPER" : "LIVE orders";
+        msg(d.live_trading ? "LIVE orders ON" : "PAPER mode — no real orders", d.live_trading ? "err" : "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function saveSettings() {
+      try {
+        await api("/api/settings", { method: "POST", body: JSON.stringify({
+          lots: Number($("lots").value),
+          ce_otm_steps: Number($("ce_steps").value),
+          pe_otm_steps: Number($("pe_steps").value),
+          product: $("product").value,
+        })});
+        msg("Live size saved", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function saveCreds() {
+      try {
+        const payload = {
+          access_token: $("access_token").value.trim(),
+          request_token: $("request_token").value.trim(),
+        };
+        const key = $("api_key").value.trim();
+        const secret = $("api_secret").value.trim();
+        if (key && !key.startsWith("•")) payload.api_key = key;
+        if (secret && !secret.startsWith("•")) payload.api_secret = secret;
+        if (!payload.access_token && !payload.request_token && !payload.api_key && !payload.api_secret) {
+          msg("Paste today’s access token", "err");
+          toggleCollapse("kite-panel", true);
+          return;
+        }
+        const d = await api("/api/credentials", { method: "POST", body: JSON.stringify(payload) });
+        $("access_token").value = "";
+        $("request_token").value = "";
+        $("api_key").value = "";
+        $("api_secret").value = "";
+        $("kite-token-badge").textContent = "TOKEN SET";
+        $("kite-token-badge").className = "badge on";
+        msg(d.profile ? ("Session OK · " + (d.profile.user_id || d.profile.user_name || "ok")) : "Token saved", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+    async function openLogin() {
+      try { const d = await api("/api/login_url"); window.open(d.url, "_blank"); }
+      catch (e) { msg(e.message, "err"); }
+    }
+    async function manualFire() {
+      const close = Number($("fire_close").value);
+      if (!close) { msg("Enter close price", "err"); return; }
+      if (!confirm("Fire OTM sells now?")) return;
+      try {
+        const d = await api("/api/manual_fire", { method: "POST", body: JSON.stringify({
+          index: $("fire_index").value, close_price: close
+        })});
+        render(d.state, { connected: false, ticks_received: 0 });
+        msg("Fired " + d.fills.length + " leg(s)", "ok");
+      } catch (e) { msg(e.message, "err"); }
+    }
+
+    render({{ status.state | tojson }}, {{ status.ws | tojson }});
+    setInterval(refresh, 1500);
+  </script>
+</body>
+</html>

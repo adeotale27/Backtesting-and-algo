@@ -46,7 +46,7 @@ class AppConfig:
     prewarm_minutes: int = 12
     strike_resolve_budget_ms: int = 5
 
-    watch_start: time = field(default_factory=lambda: time(15, 28))
+    watch_start: time = field(default_factory=lambda: time(15, 27))
     watch_end: time = field(default_factory=lambda: time(15, 35))
 
     live_trading: bool = False
@@ -105,7 +105,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
             "latency", "strike_resolve_budget_ms", fallback=5
         ),
         watch_start=_parse_time(
-            p.get("cas_window", "watch_start", fallback="15:28:00")
+            p.get("cas_window", "watch_start", fallback="15:27:00")
         ),
         watch_end=_parse_time(p.get("cas_window", "watch_end", fallback="15:35:00")),
         live_trading=p.getboolean("safety", "live_trading", fallback=False),

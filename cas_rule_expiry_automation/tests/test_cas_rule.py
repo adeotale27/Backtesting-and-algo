@@ -58,8 +58,12 @@ def test_round_atm():
 
 
 def test_in_window():
-    now = datetime(2026, 8, 6, 15, 29, tzinfo=IST)
-    assert in_window(now, time(15, 28), time(15, 35))
+    now = datetime(2026, 8, 6, 15, 27, tzinfo=IST)
+    assert in_window(now, time(15, 27), time(15, 35))
+    now2 = datetime(2026, 8, 6, 15, 28, tzinfo=IST)
+    assert in_window(now2, time(15, 27), time(15, 35))
+    early = datetime(2026, 8, 6, 15, 26, tzinfo=IST)
+    assert not in_window(early, time(15, 27), time(15, 35))
 
 
 def test_tick_bus_and_replay():
@@ -246,3 +250,14 @@ def test_app_login_page(tmp_path):
     ensure_config()
     c = app.test_client()
     assert c.get("/login").status_code == 200
+    with c.session_transaction() as s:
+        s["ok"] = True
+        s["user"] = "admin"
+    live = c.get("/")
+    assert live.status_code == 200
+    assert b"Arm for today" in live.data
+    assert b"15:27" in live.data
+    bt = c.get("/backtest")
+    assert bt.status_code == 200
+    assert b"Run WS backtest" in bt.data
+    assert b"does not place live orders" in bt.data
