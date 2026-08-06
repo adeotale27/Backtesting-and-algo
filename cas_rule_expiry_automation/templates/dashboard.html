@@ -93,7 +93,7 @@
 
     <section class="card">
       <h2>Trade size (configurable)</h2>
-      <p class="hint">Lots apply to <strong>each</strong> leg (CE and PE). OTM steps = strike gaps from ATM.</p>
+      <p class="hint">Lots apply to <strong>each</strong> leg — e.g. 10 lots = sell 10 CE + 10 PE (hedged). OTM steps = strike gaps from ATM.</p>
       <div class="row-3">
         <div>
           <label>Lots</label>
@@ -194,7 +194,7 @@
         <div><label>Start</label><input id="bt_start" type="date" /></div>
         <div><label>End</label><input id="bt_end" type="date" /></div>
         <div><label>Capital</label><input id="bt_capital" type="number" value="{{ cfg.default_capital|int }}" /></div>
-        <div><label>Lots</label><input id="bt_lots" type="number" min="1" value="{{ cfg.lots }}" /></div>
+        <div><label>Lots (each leg)</label><input id="bt_lots" type="number" min="1" value="{{ cfg.lots }}" title="10 lots = 10 CE + 10 PE" /></div>
       </div>
       <div class="row" style="margin-top:0.5rem">
         <div><label>Force close (optional)</label><input id="bt_force_close" type="number" step="0.01" placeholder="e.g. 78954.76" /></div>
@@ -210,9 +210,10 @@
         <button class="btn-primary" onclick="runBacktest()">Run WS backtest</button>
       </div>
       <p class="hint" style="margin-top:0.6rem">
+        <strong>Lots</strong> = size per side (10 → sell 10 CE lots + 10 PE lots, hedged).
         Strike rule: spot &lt; ATM → sell <strong>ATM CE</strong> + (ATM−N) PE;
         spot &gt; ATM → sell (ATM+N) CE + <strong>ATM PE</strong>.
-        Close priority: Force close → Kite → synthetic.
+        Detect time from index CAS print bar (~15:29:30). Entry premium = option minute <strong>close</strong> at that bar (not pre-print open).
       </p>
       <div class="kpis" id="bt-kpis"></div>
       <div id="bt-notes" class="hint"></div>
@@ -224,9 +225,10 @@
               <th>CE strike</th><th>PE strike</th>
               <th>CE prem</th><th>PE prem</th>
               <th>CE exit</th><th>PE exit</th>
-              <th>Lots</th><th>Qty</th>
+              <th>Lots</th><th>Qty/leg</th>
               <th>CAS detected</th><th>CE sold at</th><th>PE sold at</th>
-              <th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
+              <th>→CE ms</th><th>→PE ms</th>
+              <th>Total decay</th><th>P&amp;L</th>
               <th>Prem src</th>
             </tr>
           </thead>
@@ -446,10 +448,12 @@
             <td title="${t.cas_detected_at||""}">${(t.cas_detected_at||"—").replace("T"," ").slice(11,23)}</td>
             <td title="${t.ce_sold_at||""}"><strong>${(t.ce_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
             <td title="${t.pe_sold_at||""}"><strong>${(t.pe_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
-            <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td><td>${t.pnl}</td>
+            <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td>
+            <td title="CE+PE premium decay × qty/leg"><strong>₹${Number(t.total_decay ?? t.pnl ?? 0).toLocaleString("en-IN")}</strong></td>
+            <td>${t.pnl}</td>
             <td>${t.premium_source||""}</td>
           </tr>`
-        ).join("") || "<tr><td colspan=19>No expiry days</td></tr>";
+        ).join("") || "<tr><td colspan=20>No expiry days</td></tr>";
         msg("Backtest complete","ok");
       } catch(e){ msg(e.message,"err"); }
     }

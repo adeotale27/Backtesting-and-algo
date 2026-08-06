@@ -131,12 +131,14 @@ def test_ws_backtest_lots_and_sensex_strike_bias(tmp_path):
     assert t["ce_strike"] == 79000  # ATM CE when spot < ATM
     assert t["pe_strike"] == 78900
     assert t["lots"] == 3
-    assert t["quantity"] == 3 * 20  # Sensex lot
-    assert t["cas_detected_at"]
+    assert t["quantity"] == 3 * 20  # Sensex lot — per leg
+    assert "15:29:30" in t["cas_detected_at"]
     assert t["ce_sold_at"]
     assert t["pe_sold_at"]
     assert t["detect_to_ce_ms"] >= 0
     assert t["detect_to_pe_ms"] >= 0
+    assert "total_decay" in t
+    assert t["total_decay"] == t["pnl"]
 
     # Spot above ATM → ATM PE
     result2 = run_ws_backtest(
@@ -151,6 +153,62 @@ def test_ws_backtest_lots_and_sensex_strike_bias(tmp_path):
     t2 = result2.trades[0]
     assert t2["ce_strike"] == 79100
     assert t2["pe_strike"] == 79000
+
+
+def test_infer_cas_detect_and_premium_uses_minute_close():
+    from cas_rule_expiry_automation.backtest_ws import (
+        _infer_cas_detect_ts,
+        _premium_from_bars,
+    )
+
+    d = date(2026, 8, 6)
+    candles = [
+        {
+            "date": datetime(2026, 8, 6, 15, 28, tzinfo=IST),
+            "open": 78785.62,
+            "high": 78785.62,
+            "low": 78785.62,
+            "close": 78785.62,
+        },
+        {
+            "date": datetime(2026, 8, 6, 15, 29, tzinfo=IST),
+            "open": 78785.62,
+            "high": 78954.76,
+            "low": 78785.62,
+            "close": 78954.76,
+        },
+    ]
+    ts, src = _infer_cas_detect_ts(candles, 78954.76, d)
+    assert ts.hour == 15 and ts.minute == 29 and ts.second == 30
+    assert src == "kite_cas_bar"
+
+    bars = [
+        {
+            "date": datetime(2026, 8, 6, 15, 28, tzinfo=IST),
+            "open": 79.35,
+            "high": 110.3,
+            "low": 73.9,
+            "close": 102.3,
+        },
+        {
+            "date": datetime(2026, 8, 6, 15, 29, tzinfo=IST),
+            "open": 102.3,
+            "high": 104.9,
+            "low": 0.7,
+            "close": 1.2,
+        },
+        {
+            "date": datetime(2026, 8, 6, 15, 35, tzinfo=IST),
+            "open": 0.3,
+            "high": 0.3,
+            "low": 0.15,
+            "close": 0.15,
+        },
+    ]
+    entry, exit_px, detail = _premium_from_bars(bars, ts)
+    assert entry == 1.2  # minute CLOSE after CAS print — not open 102.3
+    assert exit_px == 0.15
+    assert "open=102.30" in detail
 
 
 def test_cas_premium_bs_fallback_no_floor():

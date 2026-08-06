@@ -42,8 +42,10 @@ class BacktestTrade:
     lots: int
     quantity: int
     pnl: float
-    ticks_replayed: int
-    trigger: str
+    decay_points: float = 0.0
+    total_decay: float = 0.0
+    ticks_replayed: int = 0
+    trigger: str = ""
     data_source: str = "synthetic"
     premium_source: str = "bs_fallback"
     cas_detected_at: str = ""
@@ -152,6 +154,12 @@ def _find_option_token(
     return None
 
 
+def _aware_ist(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=IST)
+    return dt.astimezone(IST)
+
+
 def _option_minute_bars(
     kite: Any, instrument_token: int, d: date
 ) -> List[dict]:
@@ -167,36 +175,113 @@ def _option_minute_bars(
 def _premium_from_bars(
     bars: List[dict], detect_ts: datetime
 ) -> tuple[Optional[float], Optional[float], str]:
-    """Pick entry premium at/just before CAS detect, exit near end of bars.
+    """Pick entry premium at CAS print, exit near end of bars.
 
-    Returns (entry, exit, detail).
+    Kite only gives 1-minute option bars. The CAS close prints mid-minute
+    (typically ~15:29:25–15:29:30). Using that minute's **open** would be the
+    pre-print premium (e.g. PE ₹102 at 15:29:00) and badly overstates fills.
+    We therefore use the **close** of the detect minute as the achievable
+    post-print market-sell fill, and keep open in the detail string.
     """
     if not bars:
         return None, None, "no_option_bars"
-    # Normalize dates
-    def _aware(dt):
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=IST)
-        return dt.astimezone(IST)
 
-    detect = _aware(detect_ts)
-    # Prefer bar whose minute == detect minute; else nearest earlier bar
-    ranked = sorted(bars, key=lambda b: abs((_aware(b["date"]) - detect).total_seconds()))
-    entry_bar = ranked[0]
-    # If detect is mid-collapse, also consider previous minute open (better "as soon as")
-    earlier = [
-        b for b in bars if _aware(b["date"]) <= detect
+    detect = _aware_ist(detect_ts)
+    # Bar covering the detect minute (Kite stamps bars at minute start)
+    same_minute = [
+        b
+        for b in bars
+        if _aware_ist(b["date"]).replace(second=0, microsecond=0)
+        == detect.replace(second=0, microsecond=0)
     ]
-    if earlier:
+    earlier = [b for b in bars if _aware_ist(b["date"]) <= detect]
+    if same_minute:
+        entry_bar = same_minute[0]
+    elif earlier:
         entry_bar = earlier[-1]
-    entry = float(entry_bar.get("open") or entry_bar.get("close") or 0)
-    # Exit = last bar close (post-CAS collapse) 
+    else:
+        entry_bar = min(
+            bars, key=lambda b: abs((_aware_ist(b["date"]) - detect).total_seconds())
+        )
+
+    bar_open = float(entry_bar.get("open") or 0)
+    bar_close = float(entry_bar.get("close") or 0)
+    bar_low = float(entry_bar.get("low") or bar_close)
+    bar_high = float(entry_bar.get("high") or bar_open)
+    # Post-CAS print fill: minute close (collapse already underway).
+    # Fall back to low if close missing.
+    entry = bar_close if bar_close > 0 else bar_low
     exit_px = float(bars[-1].get("close") or 0)
     detail = (
-        f"entry@{_aware(entry_bar['date']).strftime('%H:%M')} open={entry:.2f}; "
-        f"exit@{_aware(bars[-1]['date']).strftime('%H:%M')} close={exit_px:.2f}"
+        f"entry@{_aware_ist(entry_bar['date']).strftime('%H:%M')} "
+        f"close={entry:.2f} (open={bar_open:.2f} hi={bar_high:.2f} lo={bar_low:.2f}); "
+        f"exit@{_aware_ist(bars[-1]['date']).strftime('%H:%M')} close={exit_px:.2f}"
     )
     return entry, exit_px, detail
+
+
+def _infer_cas_detect_ts(
+    candles: List[dict], cas_close: float, session_date: date
+) -> tuple[datetime, str]:
+    """Infer when CAS close printed from index minute candles.
+
+    Looks for the first 15:28–15:30 bar whose high/close reaches the CAS
+    equilibrium. Stamps detect at minute_start + 30s (matches typical
+    15:29:25–15:29:30 print seen on 5s charts). Falls back to 15:29:30.
+    """
+    target = float(cas_close)
+    window: List[dict] = []
+    for c in candles:
+        dt = _aware_ist(c["date"]) if isinstance(c.get("date"), datetime) else None
+        if dt is None:
+            continue
+        if dt.hour == 15 and 28 <= dt.minute <= 30:
+            window.append(c)
+
+    def _stamp(bar: dict) -> datetime:
+        start = _aware_ist(bar["date"]).replace(second=0, microsecond=0)
+        # CAS equilibrium usually lands mid-minute on the print bar.
+        return start + timedelta(seconds=30)
+
+    for c in window:
+        hi = float(c.get("high") or 0)
+        cl = float(c.get("close") or 0)
+        if abs(cl - target) <= 0.51 or abs(hi - target) <= 0.51:
+            return _stamp(c), "kite_cas_bar"
+
+    # Largest absolute close jump in the window
+    best = None
+    best_jump = -1.0
+    prev = None
+    for c in window:
+        cl = float(c.get("close") or 0)
+        if prev is not None:
+            jump = abs(cl - prev)
+            if jump > best_jump:
+                best_jump = jump
+                best = c
+        prev = cl
+    if best is not None and best_jump > 0:
+        return _stamp(best), "kite_cas_jump"
+
+    # Fixed realistic default (not random) — matches observed Sensex print window
+    return (
+        datetime(
+            session_date.year,
+            session_date.month,
+            session_date.day,
+            15,
+            29,
+            30,
+            tzinfo=IST,
+        ),
+        "default_15:29:30",
+    )
+
+
+def _cas_window_stamp(d: date, rng_seed: int = 0) -> datetime:
+    """Deprecated random stamp — kept for import compatibility; prefer 15:29:30."""
+    return datetime(d.year, d.month, d.day, 15, 29, 30, tzinfo=IST)
 
 
 def _live_option_pnl_legs(
@@ -252,10 +337,10 @@ def _live_option_pnl_legs(
         out["pe_exit"] = intrinsic(close_px, pe_strike, "PE")
         details.append("PE:bs_fallback")
 
-    if any("open=" in d for d in details):
+    if any("close=" in d for d in details):
         out["premium_source"] = "kite_option_minute"
     out["detail"] = " | ".join(details)
-    # P&L from short premium
+    # P&L from short premium — qty lots on CE AND qty lots on PE (hedged)
     out["pnl"] = (
         (float(out["ce_premium"]) - float(out["ce_exit"]))
         + (float(out["pe_premium"]) - float(out["pe_exit"]))
@@ -320,16 +405,6 @@ def _fetch_minute_candles(kite: Any, index: str, d: date) -> List[dict]:
         return []
 
 
-def _cas_window_stamp(d: date, rng_seed: int = 0) -> datetime:
-    """Random CAS print time between 15:28 and 15:30 IST (matches OE Session II)."""
-    import random
-
-    rng = random.Random(rng_seed + d.toordinal())
-    # seconds offset within [15:28:00, 15:30:00)
-    offset = rng.randint(0, 119)
-    return datetime(d.year, d.month, d.day, 15, 28, 0, tzinfo=IST) + timedelta(seconds=offset)
-
-
 class _TimedFireProbe:
     """Detects CAS close on the tick bus and records wall-clock detect time."""
 
@@ -362,10 +437,18 @@ class _TimedFireProbe:
             self.trigger = "ws_replay_cas"
             ts = tick.get("cas_ts") or tick.get("timestamp")
             if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=IST)
                 self.cas_detected_at = ts.astimezone(IST).isoformat(timespec="milliseconds")
             else:
-                self.cas_detected_at = _cas_window_stamp(
-                    self.session_date, hash(self.index) % 1000
+                self.cas_detected_at = datetime(
+                    self.session_date.year,
+                    self.session_date.month,
+                    self.session_date.day,
+                    15,
+                    29,
+                    30,
+                    tzinfo=IST,
                 ).isoformat(timespec="milliseconds")
             self._detect_perf = time.perf_counter()
             return
@@ -429,16 +512,20 @@ def run_ws_backtest(
     overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
         "Ticks replayed through the same WebSocket TickBus contract as live trading.",
-        "cas_detected_at is stamped in the 15:28–15:30 IST CAS window.",
+        "cas_detected_at is inferred from the index CAS print bar (~15:29:30), not random.",
         "ce_sold_at / pe_sold_at are execution timestamps after CAS detect.",
         (
             "Strike rule: spot<ATM → sell ATM CE + (ATM−N) PE; "
             "spot>ATM → sell (ATM+N) CE + ATM PE."
         ),
-        f"OTM steps CE={cfg.ce_otm_steps} PE={cfg.pe_otm_steps}, lots={trade_lots}.",
         (
-            "Entry premium: real Kite option minute candles at CAS detect when available; "
-            "otherwise BS fallback (no fixed ₹100 floor)."
+            f"Lots={trade_lots} means {trade_lots} lot(s) CE + {trade_lots} lot(s) PE "
+            "(hedged). OTM steps CE="
+            f"{cfg.ce_otm_steps} PE={cfg.pe_otm_steps}."
+        ),
+        (
+            "Entry premium: Kite option minute CLOSE at the CAS-print minute "
+            "(not the pre-print open). Exit = last available option bar."
         ),
         "Close priority: manual override → Kite daily/minute → synthetic (last resort).",
     ]
@@ -486,7 +573,8 @@ def run_ws_backtest(
                     data_source = "kite_daily"
                     candles = _synthetic_day_candles(index, d, anchor_close=day_close)
 
-            # Manual override wins for the CAS equilibrium price
+            # Manual override wins for the CAS equilibrium price, but keep
+            # real Kite minute candles so detect time matches the chart.
             cas_close_override = manual_close if manual_close is not None else day_close
             if manual_close is not None:
                 data_source = (
@@ -494,7 +582,15 @@ def run_ws_backtest(
                     if data_source != "synthetic"
                     else "manual_close"
                 )
-                candles = _synthetic_day_candles(index, d, anchor_close=manual_close)
+                if not candles:
+                    candles = _synthetic_day_candles(index, d, anchor_close=manual_close)
+                else:
+                    # Force CAS close onto the print bar / last bar
+                    candles = [dict(c) for c in candles]
+                    candles[-1]["close"] = float(manual_close)
+                    candles[-1]["high"] = max(
+                        float(candles[-1].get("high") or manual_close), float(manual_close)
+                    )
                 notes.append(
                     f"{d} {index}: using MANUAL close override {manual_close}"
                 )
@@ -510,16 +606,20 @@ def run_ws_backtest(
                         "Paste access_token or set Force close."
                     )
 
-            cas_ts = _cas_window_stamp(d, hash(index) % 1000)
+            close_px = float(
+                cas_close_override
+                if cas_close_override is not None
+                else candles[-1]["close"]
+            )
+            cas_ts, cas_src = _infer_cas_detect_ts(candles, close_px, d)
             baseline = float(candles[0]["open"])
             ticks = candle_to_ticks(token, candles, ticks_per_candle=4)
             if ticks:
-                if cas_close_override is not None:
-                    ticks[-1]["last_price"] = float(cas_close_override)
-                    ticks[-1]["ohlc"] = {
-                        **(ticks[-1].get("ohlc") or {}),
-                        "close": float(cas_close_override),
-                    }
+                ticks[-1]["last_price"] = close_px
+                ticks[-1]["ohlc"] = {
+                    **(ticks[-1].get("ohlc") or {}),
+                    "close": close_px,
+                }
                 ticks[-1]["cas_ts"] = cas_ts
                 ticks[-1]["timestamp"] = cas_ts
                 ticks[-1]["cas_close"] = True
@@ -531,25 +631,16 @@ def run_ws_backtest(
             ws_ticks_total += n
 
             if probe.fired_close is None:
-                close_px = float(
-                    cas_close_override
-                    if cas_close_override is not None
-                    else candles[-1]["close"]
-                )
                 trigger = "fallback_close"
                 detect_iso = cas_ts.isoformat(timespec="milliseconds")
                 detect_perf = time.perf_counter()
             else:
-                close_px = (
-                    float(cas_close_override)
-                    if cas_close_override is not None
-                    else float(probe.fired_close)
-                )
                 trigger = probe.trigger or "ws"
-                detect_iso = probe.cas_detected_at or cas_ts.isoformat(
-                    timespec="milliseconds"
-                )
+                # Prefer inferred CAS print time from index candles (chart-accurate)
+                # over any leftover random stamp.
+                detect_iso = cas_ts.isoformat(timespec="milliseconds")
                 detect_perf = probe._detect_perf or time.perf_counter()
+            trigger = f"{trigger}:{cas_src}"
 
             atm, ce_k, pe_k = otm_strikes(
                 close_px, gap, cfg.ce_otm_steps, cfg.pe_otm_steps
@@ -596,6 +687,9 @@ def run_ws_backtest(
                 premium_source = "bs_fallback"
                 prem_detail = "no kite session"
 
+            decay_points = (ce_p - ce_s) + (pe_p - pe_s)
+            total_decay = decay_points * qty
+
             equity += pnl
             peak = max(peak, equity)
             dd = (peak - equity) / peak * 100 if peak else 0
@@ -617,6 +711,8 @@ def run_ws_backtest(
                     lots=trade_lots,
                     quantity=qty,
                     pnl=round(pnl, 2),
+                    decay_points=round(decay_points, 2),
+                    total_decay=round(total_decay, 2),
                     ticks_replayed=n,
                     trigger=trigger,
                     data_source=data_source,
@@ -628,9 +724,10 @@ def run_ws_backtest(
                     detect_to_pe_ms=float(timing.detect_to_pe_ms or 0),
                     detect_to_done_ms=float(timing.detect_to_done_ms or 0),
                     note=(
-                        f"SELL CE {ce_k} @₹{ce_p:.2f} → exit ₹{ce_s:.2f}; "
-                        f"SELL PE {pe_k} @₹{pe_p:.2f} → exit ₹{pe_s:.2f}; "
-                        f"qty={qty}; spot={data_source}; prem={premium_source}; {prem_detail}"
+                        f"SELL {trade_lots} lot CE {ce_k} @₹{ce_p:.2f} → exit ₹{ce_s:.2f}; "
+                        f"SELL {trade_lots} lot PE {pe_k} @₹{pe_p:.2f} → exit ₹{pe_s:.2f}; "
+                        f"qty/leg={qty}; decay_pts={decay_points:.2f}; "
+                        f"spot={data_source}; prem={premium_source}; detect={cas_src}; {prem_detail}"
                     ),
                 )
             )
