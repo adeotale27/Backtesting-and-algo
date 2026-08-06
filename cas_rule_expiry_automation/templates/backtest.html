@@ -30,8 +30,9 @@
       <div class="bt-hero-copy">
         <h1>Backtest</h1>
         <p>
-          Historical replay using the same strike logic and MARKET-sell path as Live.
-          Defaults to today. Lots here do not change Live trade size.
+          Historical replay of the same strike + MARKET-sell logic as Live.
+          Live itself fires on the WebSocket tick (ms), not on chart time —
+          backtest only approximates CAS timing from 1-minute history.
         </p>
       </div>
     </section>

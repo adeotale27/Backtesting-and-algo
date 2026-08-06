@@ -25,6 +25,8 @@ class StreamStats:
     subscribed: List[int] = field(default_factory=list)
     ticks_received: int = 0
     last_tick_at: Optional[str] = None
+    last_tick_age_ms: Optional[float] = None
+    inter_tick_ms: Optional[float] = None
     last_error: Optional[str] = None
     source: str = "idle"  # live | replay | idle
 
@@ -36,6 +38,8 @@ class TickBus:
         self._handlers: List[TickHandler] = []
         self._lock = threading.Lock()
         self.stats = StreamStats()
+        self._last_stamp_mono: float = 0.0
+        self._last_tick_mono: float = 0.0
 
     def add_handler(self, handler: TickHandler) -> None:
         with self._lock:
@@ -50,12 +54,15 @@ class TickBus:
     def publish(self, ticks: List[dict]) -> None:
         if not ticks:
             return
-        # Keep publish cheap — fire path runs inside handlers; avoid IST/datetime
-        # work on every tick. Stamp last_tick sparsely for UI only.
+        # Push path — no sleep, no 1s poll. Stamp gap between ticks for UI.
         n = len(ticks)
-        self.stats.ticks_received += n
         now_mono = time.monotonic()
-        if now_mono - getattr(self, "_last_stamp_mono", 0.0) >= 0.25:
+        if self._last_tick_mono > 0:
+            self.stats.inter_tick_ms = round((now_mono - self._last_tick_mono) * 1000.0, 3)
+        self._last_tick_mono = now_mono
+        self.stats.ticks_received += n
+        self.stats.last_tick_age_ms = 0.0
+        if now_mono - self._last_stamp_mono >= 0.25:
             self._last_stamp_mono = now_mono
             self.stats.last_tick_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         with self._lock:

@@ -408,6 +408,56 @@ def test_ws_heartbeat_does_not_persist(tmp_path):
     assert store.snapshot()["last_ltp"]["SENSEX"] == 79000.5
 
 
+def test_ws_tick_fires_immediately_not_on_chart_time(tmp_path):
+    """Live path: ohlc.close flip on a WS tick starts sell (no 15:29:30 wait)."""
+    from cas_rule_expiry_automation.strategy_engine import StrategyEngine
+    from cas_rule_expiry_automation.state import StateStore
+    from cas_rule_expiry_automation.expiry_calendar import INDEX_META
+    from unittest.mock import MagicMock
+    import time as _time
+
+    cfg = _cfg(tmp_path)
+    cfg.watch_start = time(0, 0)   # always in window for unit test
+    cfg.watch_end = time(23, 59, 59)
+    cfg.fire_on_close_update = True
+    store = StateStore(str(tmp_path / "rt.json"))
+    store.activate("test")
+    client = MagicMock()
+    strat = StrategyEngine(client, cfg, store)
+    strat.active_indexes = ["SENSEX"]
+    strat._token_to_index = {int(INDEX_META["SENSEX"]["token"]): "SENSEX"}
+    strat._baseline_close["SENSEX"] = 78000.0
+    strat._refresh_window_bounds()
+
+    fired = {"n": 0}
+
+    def fake_fire_claimed(index, close_price, trigger, source="live"):
+        fired["n"] += 1
+        fired["close"] = close_price
+        fired["trigger"] = trigger
+        return []
+
+    strat._fire_claimed = fake_fire_claimed  # type: ignore[method-assign]
+
+    # Tick with NEW day close — must fire on this callback, not wait for chart bar
+    strat.on_ticks(
+        [
+            {
+                "instrument_token": INDEX_META["SENSEX"]["token"],
+                "last_price": 78954.76,
+                "ohlc": {"open": 78000, "high": 79000, "low": 78000, "close": 78954.76},
+            }
+        ]
+    )
+    # Async thread — wait briefly
+    deadline = _time.time() + 1.0
+    while fired["n"] == 0 and _time.time() < deadline:
+        _time.sleep(0.01)
+    assert fired["n"] == 1
+    assert fired["close"] == 78954.76
+    assert fired["trigger"] == "ws_ohlc_close"
+
+
 def test_watch_start_migrates_1528_to_1527(tmp_path):
     from cas_rule_expiry_automation.config import load_config
 

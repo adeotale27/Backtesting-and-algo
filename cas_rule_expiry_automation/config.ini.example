@@ -23,11 +23,13 @@ nifty_expiry_weekday = 1
 sensex_expiry_weekday = 3
 
 [latency]
-# KiteTicker mode: ltp | quote | full  (full includes ohlc.close — recommended)
+# KiteTicker mode: ltp | quote | full
+# full = push ticks whenever LTP/depth/OHLC fields change (not a 1s poll).
+# CAS fire uses ohlc.close flip on that push — sell starts on that same tick.
 ws_mode = full
-# Fire when ohlc.close flips from the morning baseline (official CAS print)
+# Fire the instant WebSocket ohlc.close flips from morning baseline (CAS print)
 fire_on_close_update = true
-# Also allow firing from last_price once inside the CAS fire window
+# Optional: also fire from last_price inside the window (usually leave false)
 fire_on_ltp_in_window = false
 # Pre-warm option contracts this many minutes before watch_start
 prewarm_minutes = 12

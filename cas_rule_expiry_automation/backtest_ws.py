@@ -571,12 +571,11 @@ def run_ws_backtest(
     trade_lots = max(int(lots if lots is not None else cfg.lots), 1)
     overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
-        "Same detect → MARKET sell path as Live (replayed historically).",
+        "LIVE fires the instant a WebSocket tick carries the new CAS close — not chart time.",
         (
-            f"Detect→sell latency modeled at ~{cfg.fill_latency_ms:g}ms "
-            "(Zerodha MARKET ack is not instant — same idea as live)."
+            "Backtest only approximates that moment from 1-minute Kite history "
+            f"(~15:29:30 mid-bar) and models ~{cfg.fill_latency_ms:g}ms MARKET ack."
         ),
-        "CAS detect inferred from the index print bar (~15:29:30).",
         (
             "Strike rule: spot<ATM → sell ATM CE + (ATM−N) PE; "
             "spot>ATM → sell (ATM+N) CE + ATM PE."

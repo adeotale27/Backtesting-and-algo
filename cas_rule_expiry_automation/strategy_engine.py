@@ -1,4 +1,8 @@
-"""WebSocket-driven CAS fire strategy with detect→sell timing."""
+"""WebSocket-driven CAS fire strategy with detect→sell timing.
+
+Live rule: the moment a KiteTicker tick carries the new CAS close, we sell.
+No chart time, no 1-second poll — fire is push-driven on the tick callback.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +17,21 @@ from cas_rule_expiry_automation.kite_client import KiteClient
 from cas_rule_expiry_automation.order_engine import OrderEngine
 from cas_rule_expiry_automation.state import StateStore
 from cas_rule_expiry_automation.strike_resolver import StrikeCache
-from cas_rule_expiry_automation.time_utils import get_ist_now, in_window
 from cas_rule_expiry_automation.timing import new_detect_event
 
 logger = logging.getLogger(__name__)
+
+# IST is UTC+5:30 fixed — used for a cheap window check on every tick.
+_IST_OFFSET_SEC = 5 * 3600 + 30 * 60
+
+
+def _ist_day_seconds() -> float:
+    """Seconds since local IST midnight (no datetime alloc)."""
+    return (time.time() + _IST_OFFSET_SEC) % 86400.0
+
+
+def _time_to_day_seconds(t) -> float:
+    return t.hour * 3600 + t.minute * 60 + t.second + t.microsecond / 1e6
 
 
 class StrategyEngine:
@@ -41,6 +56,12 @@ class StrategyEngine:
         self._lock = threading.Lock()
         self._firing: Set[str] = set()
         self.active_indexes: List[str] = []
+        self._win_start_sec = _time_to_day_seconds(config.watch_start)
+        self._win_end_sec = _time_to_day_seconds(config.watch_end)
+
+    def _refresh_window_bounds(self) -> None:
+        self._win_start_sec = _time_to_day_seconds(self.config.watch_start)
+        self._win_end_sec = _time_to_day_seconds(self.config.watch_end)
 
     def setup_for_today(self) -> List[str]:
         indexes = today_indexes(self.config)
@@ -48,6 +69,7 @@ class StrategyEngine:
         self._token_to_index = {
             int(INDEX_META[i]["token"]): i for i in indexes
         }
+        self._refresh_window_bounds()
         if not indexes:
             logger.info("Not an expiry day — strategy idle")
         return indexes
@@ -74,21 +96,19 @@ class StrategyEngine:
                     logger.warning("prewarm %s failed: %s", index, exc)
 
     def on_ticks(self, ticks: List[dict]) -> None:
-        # Push path from KiteTicker — keep this function minimal.
+        """KiteTicker push callback — fire on this tick, do not wait for chart time."""
         if not self.store.is_activated():
             return
-        now = get_ist_now()
-        in_cas = in_window(now, self.config.watch_start, self.config.watch_end)
+        # Cheap IST window check (no datetime objects on the hot path)
+        in_cas = self._win_start_sec <= _ist_day_seconds() <= self._win_end_sec
         token_map = self._token_to_index
-        fired_local = self._firing
 
         for tick in ticks:
             token = int(tick.get("instrument_token") or 0)
             index = token_map.get(token)
             if not index:
                 continue
-            # Local set first (no lock) then store — skip after already fired.
-            if index in fired_local or self.store.has_fired(index):
+            if index in self._firing or self.store.has_fired(index):
                 continue
 
             ltp = float(tick.get("last_price") or 0)
@@ -102,6 +122,8 @@ class StrategyEngine:
             trigger = None
             close_px = None
 
+            # Primary live signal: day's ohlc.close flipped from prev-day baseline
+            # on this WebSocket tick → start MARKET sells immediately.
             if (
                 self.config.fire_on_close_update
                 and in_cas
@@ -119,38 +141,42 @@ class StrategyEngine:
                 close_px = float((tick.get("ohlc") or {}).get("close") or ltp)
 
             if trigger and close_px:
-                # Stamp the exact moment CAS value appeared on the socket
-                self._fire(index, close_px, trigger, source="live")
+                # Claim synchronously so concurrent ticks cannot double-fire,
+                # then sell off the ticker thread so the socket stays free.
+                with self._lock:
+                    if index in self._firing or self.store.has_fired(index):
+                        continue
+                    self._firing.add(index)
+                threading.Thread(
+                    target=self._fire_claimed,
+                    args=(index, float(close_px), trigger, "live"),
+                    name=f"cas-fire-{index}",
+                    daemon=True,
+                ).start()
 
-    def _fire(
+    def _fire_claimed(
         self,
         index: str,
         close_price: float,
         trigger: str,
         source: str = "live",
     ) -> list:
-        """CAS detect → cached strikes → parallel MARKET SELL CE+PE (same path as backtest intent)."""
-        with self._lock:
-            if index in self._firing or self.store.has_fired(index):
-                return []
-            self._firing.add(index)
-
-        # Keep order engine in sync with latest live/lots settings
+        """Fire path after index is already claimed in ``_firing``."""
         self.orders.lots = self.config.lots
         self.orders.product = self.config.product
         self.orders.live_trading = self.config.live_trading
 
+        # Stamp detect the instant we decided to sell (WS tick arrival)
         timing = new_detect_event(index, close_price, trigger, source=source)
         t0 = time.perf_counter()
         logger.info(
-            "CAS DETECTED %s close=%.2f at %s trigger=%s → MARKET SELL both legs",
+            "CAS DETECTED %s close=%.2f at %s trigger=%s → MARKET SELL both legs NOW",
             index,
             close_price,
             timing.cas_detected_at,
             trigger,
         )
         try:
-            # Hot path: resolve from pre-warm cache only (otm_strikes same as backtest)
             legs = self.cache.resolve(
                 self.client.kite,
                 index,
@@ -177,6 +203,20 @@ class StrategyEngine:
             with self._lock:
                 self._firing.discard(index)
             return []
+
+    def _fire(
+        self,
+        index: str,
+        close_price: float,
+        trigger: str,
+        source: str = "live",
+    ) -> list:
+        """CAS detect → cached strikes → parallel MARKET SELL CE+PE."""
+        with self._lock:
+            if index in self._firing or self.store.has_fired(index):
+                return []
+            self._firing.add(index)
+        return self._fire_claimed(index, close_price, trigger, source=source)
 
     def manual_fire(self, index: str, close_price: float) -> list:
         return self._fire(index, close_price, "manual", source="manual")
