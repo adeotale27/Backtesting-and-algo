@@ -50,10 +50,14 @@ class TickBus:
     def publish(self, ticks: List[dict]) -> None:
         if not ticks:
             return
-        self.stats.ticks_received += len(ticks)
-        from cas_rule_expiry_automation.time_utils import get_ist_now
-
-        self.stats.last_tick_at = get_ist_now().isoformat()
+        # Keep publish cheap — fire path runs inside handlers; avoid IST/datetime
+        # work on every tick. Stamp last_tick sparsely for UI only.
+        n = len(ticks)
+        self.stats.ticks_received += n
+        now_mono = time.monotonic()
+        if now_mono - getattr(self, "_last_stamp_mono", 0.0) >= 0.25:
+            self._last_stamp_mono = now_mono
+            self.stats.last_tick_at = time.strftime("%Y-%m-%dT%H:%M:%S")
         with self._lock:
             handlers = list(self._handlers)
         for h in handlers:

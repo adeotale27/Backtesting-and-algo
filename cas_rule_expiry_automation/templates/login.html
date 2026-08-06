@@ -3,24 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CAS Rule</title>
+  <title>CAS Rule Expiry Automation</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
   <div class="login-wrap">
     <form class="card login-card" method="post" action="{{ url_for('login_post') }}">
-      <h1>CAS Rule</h1>
-      <p class="hint">Sign in to manage live trading and backtests.</p>
+      <h1>CAS Rule Expiry Automation</h1>
+      <p class="hint">Admin access for the Closing Auction Session WebSocket algo.</p>
       {% if error %}<p id="msg" class="err">{{ error }}</p>{% endif %}
       <label for="username">Username</label>
       <input id="username" name="username" autocomplete="username" required />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required />
       <div class="actions">
-        <button class="btn-primary" type="submit" style="width:100%">Sign in</button>
+        <button class="btn-primary" type="submit" style="width:100%">Enter</button>
       </div>
     </form>
   </div>

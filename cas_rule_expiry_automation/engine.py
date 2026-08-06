@@ -35,6 +35,9 @@ class AutomationEngine:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._ws_started = False
+        self._indexes_day: Optional[str] = None
+        self._indexes_cache: list[str] = []
+        self._last_ws_status_at: float = 0.0
 
     @property
     def running(self) -> bool:
@@ -124,12 +127,24 @@ class AutomationEngine:
             self.ws = None
         self._ws_started = False
 
+    def _today_indexes(self, strategy: StrategyEngine) -> list[str]:
+        day = get_ist_now().date().isoformat()
+        if self._indexes_day != day:
+            self._indexes_cache = strategy.setup_for_today()
+            self._indexes_day = day
+        return self._indexes_cache
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                self.store.set_ws(
-                    self.bus.stats.connected, self.bus.stats.ticks_received
-                )
+                # Throttle WS heartbeat into state (UI only) — never on every spin.
+                now_mono = time.monotonic()
+                if now_mono - self._last_ws_status_at >= 0.5:
+                    self._last_ws_status_at = now_mono
+                    self.store.set_ws(
+                        self.bus.stats.connected, self.bus.stats.ticks_received
+                    )
+
                 if not self.store.is_activated():
                     if self._ws_started:
                         self._stop_ws()
@@ -137,7 +152,7 @@ class AutomationEngine:
                     continue
 
                 strategy = self._ensure_strategy()
-                indexes = strategy.setup_for_today()
+                indexes = self._today_indexes(strategy)
                 if not indexes:
                     time.sleep(2.0)
                     continue
@@ -155,11 +170,12 @@ class AutomationEngine:
                     if not self._ws_started:
                         self._start_ws(indexes)
 
-                # Tight poll near the fire window; idle otherwise
+                # Engine loop only manages connect/prewarm — fire is push-based
+                # on KiteTicker. Stay responsive in-window without burning CPU.
                 if in_window(now, self.config.watch_start, self.config.watch_end):
-                    time.sleep(0.05)
+                    time.sleep(0.01)
                 elif tnow >= prewarm_start:
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 else:
                     time.sleep(0.5)
             except Exception as exc:

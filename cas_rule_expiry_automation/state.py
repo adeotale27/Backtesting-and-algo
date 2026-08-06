@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -55,6 +56,7 @@ class StateStore:
         self.path = path
         self._lock = threading.RLock()
         self._s = RuntimeState()
+        self._day_checked_at: float = 0.0
         self._load()
 
     def _load(self) -> None:
@@ -115,8 +117,11 @@ class StateStore:
             return {**self._s.to_dict(), "unchanged": False}
 
     def is_activated(self) -> bool:
+        # Fast path for WS ticks — avoid day-rollover IO on every message.
         with self._lock:
-            self._ensure_same_day()
+            if self._day_checked_at == 0.0 or (time.monotonic() - self._day_checked_at) > 30.0:
+                self._ensure_same_day()
+                self._day_checked_at = time.monotonic()
             return self._s.activated
 
     def _ensure_same_day(self) -> None:
@@ -137,8 +142,8 @@ class StateStore:
             self._persist()
 
     def has_fired(self, index: str) -> bool:
-        with self._lock:
-            return index.upper() in self._s.fired_indexes
+        # Lock-free read of the in-memory fired set (updated under lock elsewhere).
+        return index.upper() in self._s.fired_indexes
 
     def mark_fired(
         self,
@@ -172,16 +177,17 @@ class StateStore:
             self._persist()
 
     def set_ltp(self, index: str, ltp: float) -> None:
+        # Hot path — memory only; never block WS on disk IO.
         with self._lock:
             self._s.last_ltp[index.upper()] = ltp
 
     def set_ws(self, connected: bool, ticks: int = 0) -> None:
+        # Heartbeat is ephemeral — do NOT persist (was blocking fire path every ~50ms).
         with self._lock:
             self._s.ws_connected = connected
             if ticks:
                 self._s.ticks_seen = ticks
             self._s.last_heartbeat = get_ist_now().isoformat()
-            self._persist()
 
     def set_error(self, msg: str) -> None:
         with self._lock:

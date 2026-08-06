@@ -274,11 +274,67 @@ def test_parallel_market_sell_both_legs(tmp_path):
     assert {f.opt_type for f in fills} == {"CE", "PE"}
     assert all(f.quantity == 40 for f in fills)  # 2 lots × 20
     assert all("MARKET" in f.trigger for f in fills)
+    assert all(f.price == 0.0 for f in fills)  # MARKET — no limit price
     assert len(client.calls) == 2
     assert all(c.get("live") is True for c in client.calls)
     assert timing.ce_sold_at and timing.pe_sold_at
     # Parallel: wall time ~ one RTT, not two sequential RTTs
     assert elapsed < 25, f"expected parallel ~10ms, got {elapsed:.1f}ms"
+
+
+def test_kite_place_market_sell_never_limit():
+    """Zerodha place_order must be ORDER_TYPE_MARKET with price=0 (not LIMIT)."""
+    from cas_rule_expiry_automation.kite_client import KiteClient
+    from types import SimpleNamespace
+
+    captured = {}
+
+    class FakeKite:
+        VARIETY_REGULAR = "regular"
+        TRANSACTION_TYPE_SELL = "SELL"
+        ORDER_TYPE_MARKET = "MARKET"
+        ORDER_TYPE_LIMIT = "LIMIT"
+        VALIDITY_DAY = "DAY"
+
+        def place_order(self, **kwargs):
+            captured.update(kwargs)
+            return "OID-1"
+
+    client = KiteClient.__new__(KiteClient)
+    client.config = SimpleNamespace()
+    client.kite = FakeKite()
+    oid = client.place_market_sell(
+        exchange="BFO",
+        tradingsymbol="SENSEX2680679000CE",
+        quantity=20,
+        product="NRML",
+        live=True,
+    )
+    assert oid == "OID-1"
+    assert captured["order_type"] == "MARKET"
+    assert captured["order_type"] != "LIMIT"
+    assert captured["price"] == 0
+    assert captured["trigger_price"] == 0
+    assert captured["transaction_type"] == "SELL"
+    assert captured["quantity"] == 20
+
+
+def test_ws_heartbeat_does_not_persist(tmp_path):
+    """Heartbeat must not rewrite runtime_state.json (blocks fire path)."""
+    from cas_rule_expiry_automation.state import StateStore
+    import os
+
+    path = tmp_path / "runtime_state.json"
+    store = StateStore(str(path))
+    store.activate("test")
+    mtime1 = os.path.getmtime(path)
+    store.set_ws(True, ticks=42)
+    store.set_ltp("SENSEX", 79000.5)
+    mtime2 = os.path.getmtime(path)
+    assert mtime1 == mtime2
+    assert store.snapshot()["ws_connected"] is True
+    assert store.snapshot()["ticks_seen"] == 42
+    assert store.snapshot()["last_ltp"]["SENSEX"] == 79000.5
 
 
 def test_watch_start_migrates_1528_to_1527(tmp_path):

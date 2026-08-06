@@ -74,17 +74,21 @@ class StrategyEngine:
                     logger.warning("prewarm %s failed: %s", index, exc)
 
     def on_ticks(self, ticks: List[dict]) -> None:
+        # Push path from KiteTicker — keep this function minimal.
         if not self.store.is_activated():
             return
         now = get_ist_now()
         in_cas = in_window(now, self.config.watch_start, self.config.watch_end)
+        token_map = self._token_to_index
+        fired_local = self._firing
 
         for tick in ticks:
             token = int(tick.get("instrument_token") or 0)
-            index = self._token_to_index.get(token)
+            index = token_map.get(token)
             if not index:
                 continue
-            if self.store.has_fired(index):
+            # Local set first (no lock) then store — skip after already fired.
+            if index in fired_local or self.store.has_fired(index):
                 continue
 
             ltp = float(tick.get("last_price") or 0)
