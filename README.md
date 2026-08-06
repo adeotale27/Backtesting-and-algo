@@ -31,6 +31,7 @@ own machine against your own Zerodha account.
 | **Trade Journal** | FIFO buy/sell pairing, per-algo P&L attribution, Zerodha reconciliation |
 | **Covered Calls** | Sell OTM calls against held equity to earn premium |
 | **CAS Expiry** | Standalone SEBI Closing Auction Session algo (`cas_expiry/`) — low-latency ATM±1 CE/PE sells when the official close prints |
+| **CAS Rule Expiry Automation** | WebSocket-first expiry algo (`cas_rule_expiry_automation/`) — Tue NIFTY / Thu SENSEX, configurable lots, light UI |
 | **Notifications** | Telegram bot + browser Web Push for fills, margin alerts, and system events |
 | **API Monitor** | Every Kite API call logged with caller, latency, and errors |
 

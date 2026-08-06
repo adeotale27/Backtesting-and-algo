@@ -1,0 +1,53 @@
+[kite]
+api_key = YOUR_API_KEY
+api_secret = YOUR_API_SECRET
+access_token =
+
+[admin]
+username = admin
+password = CHANGE_ME
+
+[strategy]
+# Lots to sell on EACH leg (CE and PE). Change this to size the trade.
+lots = 1
+# Strike steps away from ATM (1 = ATM+1 CE and ATM-1 PE)
+ce_otm_steps = 1
+pe_otm_steps = 1
+# Zerodha product: NRML | MIS
+product = NRML
+# Only trade on weekly expiry weekdays (Tue=NIFTY, Thu=SENSEX)
+expiry_only = true
+# nifty_weekday: 0=Mon … 6=Sun  (default 1 = Tuesday)
+nifty_expiry_weekday = 1
+# sensex_weekday default 3 = Thursday
+sensex_expiry_weekday = 3
+
+[latency]
+# KiteTicker mode: ltp | quote | full  (full includes ohlc.close — recommended)
+ws_mode = full
+# Fire when ohlc.close flips from the morning baseline (official CAS print)
+fire_on_close_update = true
+# Also allow firing from last_price once inside the CAS fire window
+fire_on_ltp_in_window = false
+# Pre-warm option contracts this many minutes before watch_start
+prewarm_minutes = 12
+# Max ms to spend resolving strikes at fire time (uses prewarm cache first)
+strike_resolve_budget_ms = 5
+
+[cas_window]
+# IST — Order Entry II ends randomly 15:28–15:30; matching ~15:30–15:35
+watch_start = 15:28:00
+watch_end = 15:35:00
+
+[safety]
+live_trading = false
+
+[server]
+host = 127.0.0.1
+port = 5030
+
+[backtest]
+default_capital = 500000
+assumed_iv = 18.0
+# Simulated WebSocket tick interval when replaying candles (ms)
+tick_interval_ms = 100

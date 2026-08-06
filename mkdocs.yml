@@ -34,6 +34,7 @@ nav:
       - Survivor: modules/survivor.md
       - Expiry Trade: modules/expiry-trade.md
       - CAS Expiry Algo: modules/cas-expiry.md
+      - CAS Rule Expiry Automation: modules/cas-rule-expiry-automation.md
       - Early Exit: modules/early-exit.md
       - GTT & Order Monitoring: modules/gtt-monitoring.md
       - Trade Journal: modules/trade-journal.md

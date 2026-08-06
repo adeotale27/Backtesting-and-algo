@@ -1,0 +1,209 @@
+"""ATM / OTM strike resolution with pre-warm cache for low-latency fire."""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass
+from datetime import date
+from typing import Any, Dict, List, Optional, Tuple
+
+from cas_rule_expiry_automation.expiry_calendar import INDEX_META
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Leg:
+    index: str
+    opt_type: str
+    strike: int
+    tradingsymbol: str
+    exchange: str
+    instrument_token: int
+    lot_size: int
+
+
+def round_atm(spot: float, gap: int) -> int:
+    return int(round(spot / gap) * gap)
+
+
+def otm_strikes(
+    close_price: float, gap: int, ce_steps: int, pe_steps: int
+) -> Tuple[int, int, int]:
+    atm = round_atm(close_price, gap)
+    return atm, atm + ce_steps * gap, atm - pe_steps * gap
+
+
+def _db_path() -> str:
+    import os
+
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "instruments.db"
+    )
+
+
+def common_prefix(symbols: List[str]) -> str:
+    if not symbols:
+        return ""
+    prefix = symbols[0]
+    for s in symbols[1:]:
+        while not s.startswith(prefix):
+            prefix = prefix[:-1]
+            if not prefix:
+                return ""
+    return prefix
+
+
+def detect_expiry_prefix(kite: Any, index: str, on_date: Optional[date] = None) -> Optional[str]:
+    meta = INDEX_META[index]
+    target = on_date or date.today()
+    instruments = kite.instruments(meta["exchange"])
+    symbols = [
+        i["tradingsymbol"]
+        for i in instruments
+        if i["tradingsymbol"].startswith(meta["name"])
+        and i.get("expiry") == target
+        and i.get("instrument_type") in ("CE", "PE")
+    ]
+    if not symbols:
+        return None
+    return common_prefix(symbols)
+
+
+class StrikeCache:
+    """Pre-warms nearby CE/PE contracts so fire path avoids cold instrument scans."""
+
+    def __init__(self) -> None:
+        self.prefix: Dict[str, str] = {}
+        # (index, opt_type, strike) -> Leg
+        self._legs: Dict[Tuple[str, str, int], Leg] = {}
+        self.ready_for: Dict[str, float] = {}  # index -> spot used for prewarm
+
+    def prewarm(
+        self,
+        kite: Any,
+        index: str,
+        spot: float,
+        ce_steps: int,
+        pe_steps: int,
+        radius: int = 5,
+    ) -> int:
+        meta = INDEX_META[index]
+        gap = int(meta["strike_gap"])
+        atm = round_atm(spot, gap)
+        prefix = detect_expiry_prefix(kite, index)
+        if not prefix:
+            raise RuntimeError(f"No {index} expiry contracts today")
+        self.prefix[index] = prefix
+
+        strikes = {atm + i * gap for i in range(-radius, radius + 1)}
+        strikes |= {atm + ce_steps * gap, atm - pe_steps * gap}
+        n = 0
+        for strike in strikes:
+            for opt in ("CE", "PE"):
+                leg = self._lookup(kite, index, prefix, strike, opt)
+                if leg:
+                    self._legs[(index, opt, strike)] = leg
+                    n += 1
+        self.ready_for[index] = spot
+        logger.info("Pre-warmed %s %d legs around ATM=%s prefix=%s", index, n, atm, prefix)
+        return n
+
+    def resolve(
+        self,
+        kite: Any,
+        index: str,
+        close_price: float,
+        ce_steps: int,
+        pe_steps: int,
+    ) -> List[Leg]:
+        t0 = time.perf_counter()
+        meta = INDEX_META[index]
+        gap = int(meta["strike_gap"])
+        atm, ce_strike, pe_strike = otm_strikes(close_price, gap, ce_steps, pe_steps)
+        prefix = self.prefix.get(index) or detect_expiry_prefix(kite, index)
+        if not prefix:
+            raise RuntimeError(f"No expiry prefix for {index}")
+
+        out: List[Leg] = []
+        for opt, strike in (("CE", ce_strike), ("PE", pe_strike)):
+            key = (index, opt, strike)
+            leg = self._legs.get(key)
+            if leg is None:
+                leg = self._lookup(kite, index, prefix, strike, opt)
+                if leg:
+                    self._legs[key] = leg
+            if leg is None:
+                raise RuntimeError(f"Missing {index} {opt} {strike}")
+            out.append(leg)
+        elapsed = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "Resolved %s ATM=%s CE=%s PE=%s in %.2fms",
+            index,
+            atm,
+            out[0].tradingsymbol,
+            out[1].tradingsymbol,
+            elapsed,
+        )
+        return out
+
+    def _lookup(
+        self, kite: Any, index: str, prefix: str, strike: int, opt: str
+    ) -> Optional[Leg]:
+        meta = INDEX_META[index]
+        row = self._from_db(index, prefix, strike, opt)
+        if row is None:
+            row = self._from_kite(kite, meta, prefix, strike, opt)
+        if row is None:
+            return None
+        return Leg(
+            index=index,
+            opt_type=opt,
+            strike=int(row.get("strike") or strike),
+            tradingsymbol=row["tradingsymbol"],
+            exchange=meta["exchange"],
+            instrument_token=int(row.get("instrument_token") or 0),
+            lot_size=int(row.get("lot_size") or meta["default_lot"]),
+        )
+
+    def _from_db(
+        self, index: str, prefix: str, strike: int, opt: str
+    ) -> Optional[Dict[str, Any]]:
+        meta = INDEX_META[index]
+        try:
+            conn = sqlite3.connect(_db_path())
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM instruments
+                WHERE tradingsymbol LIKE ?
+                  AND instrument_type = ?
+                  AND segment = ?
+                  AND ABS(strike - ?) < 0.01
+                LIMIT 1
+                """,
+                (f"{prefix}%", opt, meta["segment"], float(strike)),
+            )
+            row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+        except Exception:
+            return None
+
+    def _from_kite(
+        self, kite: Any, meta: Dict[str, Any], prefix: str, strike: int, opt: str
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            for inst in kite.instruments(meta["exchange"]):
+                if (
+                    inst["tradingsymbol"].startswith(prefix)
+                    and inst.get("instrument_type") == opt
+                    and abs(float(inst.get("strike") or 0) - strike) < 0.01
+                ):
+                    return inst
+        except Exception:
+            return None
+        return None
