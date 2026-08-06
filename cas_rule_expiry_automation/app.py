@@ -86,6 +86,19 @@ def logout():
     return redirect(url_for("login"))
 
 
+def _is_placeholder(value: str) -> bool:
+    v = (value or "").strip()
+    return (not v) or v.upper().startswith("YOUR_")
+
+
+def _creds_flags(cfg) -> dict:
+    return {
+        "has_key": not _is_placeholder(cfg.api_key),
+        "has_secret": not _is_placeholder(cfg.api_secret),
+        "has_token": bool((cfg.access_token or "").strip()),
+    }
+
+
 @app.get("/")
 @login_required
 def dashboard():
@@ -94,6 +107,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         cfg=cfg,
+        creds=_creds_flags(cfg),
         day=describe_today(cfg),
         upcoming=next_expiry_dates(cfg, count=6),
         status=eng.status(),
@@ -109,14 +123,25 @@ def api_status():
 @app.post("/api/credentials")
 @login_required
 def api_credentials():
+    """Update Kite session. Daily path: send only access_token.
+
+    api_key / api_secret are optional — omitted or blank keeps saved values.
+    """
     data = request.get_json(silent=True) or {}
     cfg = _cfg()
-    key = (data.get("api_key") or cfg.api_key).strip()
-    secret = (data.get("api_secret") or cfg.api_secret).strip()
+    raw_key = (data.get("api_key") or "").strip()
+    raw_secret = (data.get("api_secret") or "").strip()
+    # Keep existing key/secret unless a real new value is provided.
+    key = raw_key if raw_key and not raw_key.startswith("•") else cfg.api_key
+    secret = (
+        raw_secret if raw_secret and not raw_secret.startswith("•") else cfg.api_secret
+    )
     token = (data.get("access_token") or "").strip()
     req = (data.get("request_token") or "").strip()
+    if not token and not req and raw_key == "" and raw_secret == "":
+        return jsonify({"ok": False, "error": "access_token required"}), 400
     save_kite_credentials(key, secret, token or cfg.access_token)
-    out = {"ok": True}
+    out = {"ok": True, "creds": _creds_flags(_cfg())}
     try:
         cfg = _cfg()
         client = KiteClient(cfg)
@@ -128,6 +153,7 @@ def api_credentials():
             if not client.kite:
                 client.connect()
             out["profile"] = client.profile()
+        out["creds"] = _creds_flags(_cfg())
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     get_engine().reload_config()

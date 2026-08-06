@@ -141,3 +141,54 @@ th { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; font-we
   background: var(--accent-soft); color: var(--accent); font-size: 0.72rem;
   font-family: var(--mono); margin-right: 0.25rem;
 }
+
+/* Top Kite API control */
+.kite-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+  padding: 0.3rem 0.65rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink);
+}
+.kite-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.kite-btn.open { border-color: var(--accent); background: var(--accent-soft); }
+.kite-btn .kite-mode {
+  font-size: 0.62rem; padding: 0.12rem 0.4rem; border-radius: 999px;
+  border: 1px solid transparent; letter-spacing: 0.04em;
+}
+.kite-btn .kite-mode.live {
+  background: #fdecea; color: var(--danger); border-color: #f5c6c2;
+}
+.kite-btn .kite-mode.offline {
+  background: #fff7ed; color: var(--warn); border-color: #fbd5a8;
+}
+
+/* Collapsible sections */
+.card.collapse { padding: 0; overflow: hidden; }
+.card.collapse > .collapse-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  width: 100%; padding: 0.85rem 1.1rem; margin: 0; border: 0; background: transparent;
+  cursor: pointer; text-align: left; font: inherit; color: inherit; border-radius: 0;
+}
+.card.collapse > .collapse-head:hover { background: var(--bg); }
+.card.collapse > .collapse-head h2 {
+  margin: 0; display: flex; align-items: center; gap: 0.5rem;
+}
+.card.collapse > .collapse-head .chev {
+  font-family: var(--mono); color: var(--muted); font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+.card.collapse.open > .collapse-head .chev { transform: rotate(90deg); }
+.card.collapse > .collapse-body {
+  display: none; padding: 0 1.1rem 1rem; border-top: 1px solid var(--line);
+}
+.card.collapse.open > .collapse-body { display: block; padding-top: 0.85rem; }
+
+.adv-toggle {
+  margin-top: 0.75rem; background: transparent; border: 0; padding: 0;
+  color: var(--muted); font-family: var(--mono); font-size: 0.72rem;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.adv-toggle:hover { color: var(--accent); }
+.adv-block { display: none; margin-top: 0.5rem; padding-top: 0.35rem; }
+.adv-block.open { display: block; }
+.masked-hint { font-size: 0.72rem; color: var(--muted); margin: 0.15rem 0 0; }

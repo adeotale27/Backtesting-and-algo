@@ -77,6 +77,15 @@ class AutomationEngine:
                 "pe_otm_steps": self.config.pe_otm_steps,
                 "product": self.config.product,
                 "live_trading": self.config.live_trading,
+                "has_token": bool((self.config.access_token or "").strip()),
+                "has_key": bool(
+                    (self.config.api_key or "").strip()
+                    and not self.config.api_key.upper().startswith("YOUR_")
+                ),
+                "has_secret": bool(
+                    (self.config.api_secret or "").strip()
+                    and not self.config.api_secret.upper().startswith("YOUR_")
+                ),
                 "watch_start": self.config.watch_start.isoformat(timespec="seconds"),
                 "watch_end": self.config.watch_end.isoformat(timespec="seconds"),
                 "ws_mode": self.config.ws_mode,

@@ -16,6 +16,12 @@
       <small>WebSocket · Tue NIFTY · Thu SENSEX · ATM-biased OTM sell</small>
     </div>
     <div class="badges">
+      <button type="button" id="kite-btn" class="kite-btn" onclick="toggleKitePanel()" title="Update Kite access token">
+        Kite API
+        <span id="kite-mode" class="kite-mode {{ 'live' if cfg.live_trading else 'offline' }}">
+          {{ 'LIVE' if cfg.live_trading else 'OFFLINE' }}
+        </span>
+      </button>
       <span id="b-live" class="badge {{ 'live' if cfg.live_trading else 'warn' }}">{{ 'LIVE' if cfg.live_trading else 'DRY-RUN' }}</span>
       <span id="b-arm" class="badge {{ 'on' if status.state.activated else '' }}">{{ 'ARMED' if status.state.activated else 'IDLE' }}</span>
       <span id="b-ws" class="badge {{ 'on' if status.ws.connected else '' }}">WS {{ 'ON' if status.ws.connected else 'OFF' }}</span>
@@ -25,6 +31,44 @@
   </header>
 
   <main class="wrap">
+    <section id="kite-panel" class="card collapse wide">
+      <button type="button" class="collapse-head" onclick="toggleKitePanel()">
+        <h2><span class="chev">▸</span> Kite API · daily token</h2>
+        <span class="badge {{ 'on' if creds.has_token else 'warn' }}" id="kite-token-badge">
+          {{ 'TOKEN SET' if creds.has_token else 'TOKEN NEEDED' }}
+        </span>
+      </button>
+      <div class="collapse-body">
+        <p class="hint">
+          API key &amp; secret are saved once and stay masked.
+          Each trading day, paste only a fresh <strong>access token</strong>.
+        </p>
+        <label>Access token (update daily)</label>
+        <input id="access_token" type="password" autocomplete="off"
+               placeholder="{{ 'token saved — paste new token to replace' if creds.has_token else 'paste today’s access_token' }}" />
+        <label>Request token (optional — exchanges to access_token)</label>
+        <input id="request_token" autocomplete="off" placeholder="from Kite login redirect" />
+        <div class="actions">
+          <button class="btn-primary" onclick="saveCreds()">Save token</button>
+          <button class="btn-ghost" onclick="openLogin()">Kite login URL</button>
+        </div>
+        <button type="button" class="adv-toggle" id="adv-toggle" onclick="toggleAdvKeys()">
+          Show API key &amp; secret (masked)
+        </button>
+        <div id="adv-keys" class="adv-block">
+          <p class="hint">Leave blank to keep the saved values. Only fill if you need to change them.</p>
+          <label>API key</label>
+          <input id="api_key" type="password" autocomplete="off"
+                 placeholder="{{ '•••••••• (saved)' if creds.has_key else 'api_key' }}" />
+          <p class="masked-hint">{{ 'Saved key is masked — type a new one only to replace.' if creds.has_key else '' }}</p>
+          <label>API secret</label>
+          <input id="api_secret" type="password" autocomplete="off"
+                 placeholder="{{ '•••••••• (saved)' if creds.has_secret else 'api_secret' }}" />
+          <p class="masked-hint">{{ 'Saved secret is masked — type a new one only to replace.' if creds.has_secret else '' }}</p>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <h2>Activation</h2>
       <p class="hint">
@@ -74,42 +118,34 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Zerodha credentials</h2>
-      <p class="hint">Paste API key/secret once. Fresh access_token each morning (or request_token exchange).</p>
-      <label>API key</label>
-      <input id="api_key" value="{{ '' if cfg.api_key.startswith('YOUR_') else cfg.api_key }}" />
-      <label>API secret</label>
-      <input id="api_secret" type="password" placeholder="{{ 'saved' if cfg.api_secret and not cfg.api_secret.startswith('YOUR_') else '' }}" />
-      <label>Access token</label>
-      <input id="access_token" placeholder="{{ 'token set — paste to replace' if cfg.access_token else 'today access_token' }}" />
-      <label>Request token (optional)</label>
-      <input id="request_token" />
-      <div class="actions">
-        <button class="btn-primary" onclick="saveCreds()">Save</button>
-        <button class="btn-ghost" onclick="openLogin()">Kite login URL</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Upcoming expiries</h2>
-      <p class="hint">NIFTY every {{ day.nifty_on }}, SENSEX every {{ day.sensex_on }}.</p>
-      {% for e in upcoming %}
-        <span class="chip">{{ e.weekday_name }} {{ e.date.isoformat() }} · {{ e.index }}</span>
-      {% endfor %}
-      <h2 style="margin-top:1rem">Manual fire</h2>
-      <div class="row">
-        <div>
-          <label>Index</label>
-          <select id="fire_index"><option>NIFTY</option><option>SENSEX</option></select>
+    <section id="advanced-panel" class="card collapse">
+      <button type="button" class="collapse-head" onclick="toggleCollapse('advanced-panel')">
+        <h2><span class="chev">▸</span> Upcoming expiries · Manual fire</h2>
+        <span class="badge">rarely used</span>
+      </button>
+      <div class="collapse-body">
+        <p class="hint">
+          Strategy runs automatically on expiry days (Tue NIFTY / Thu SENSEX).
+          Manual fire is only for rare testing — you do not need a close price on real days.
+        </p>
+        <p class="hint" style="margin-bottom:0.4rem">NIFTY every {{ day.nifty_on }}, SENSEX every {{ day.sensex_on }}.</p>
+        {% for e in upcoming %}
+          <span class="chip">{{ e.weekday_name }} {{ e.date.isoformat() }} · {{ e.index }}</span>
+        {% endfor %}
+        <h2 style="margin-top:1rem">Manual fire</h2>
+        <div class="row">
+          <div>
+            <label>Index</label>
+            <select id="fire_index"><option>NIFTY</option><option>SENSEX</option></select>
+          </div>
+          <div>
+            <label>Close price</label>
+            <input id="fire_close" type="number" step="0.05" placeholder="24850" />
+          </div>
         </div>
-        <div>
-          <label>Close price</label>
-          <input id="fire_close" type="number" step="0.05" placeholder="24850" />
+        <div class="actions">
+          <button class="btn-warn" onclick="manualFire()">Fire now</button>
         </div>
-      </div>
-      <div class="actions">
-        <button class="btn-warn" onclick="manualFire()">Fire now</button>
       </div>
     </section>
 
@@ -216,6 +252,39 @@
   <script>
     const $ = (id) => document.getElementById(id);
     function msg(t, cls) { const el = $("msg"); el.textContent = t || ""; el.className = cls || ""; }
+
+    function setLiveMode(live) {
+      $("b-live").textContent = live ? "LIVE" : "DRY-RUN";
+      $("b-live").className = "badge " + (live ? "live" : "warn");
+      const mode = $("kite-mode");
+      mode.textContent = live ? "LIVE" : "OFFLINE";
+      mode.className = "kite-mode " + (live ? "live" : "offline");
+    }
+
+    function toggleCollapse(id, forceOpen) {
+      const el = $(id);
+      if (!el) return;
+      const open = forceOpen === true ? true : forceOpen === false ? false : !el.classList.contains("open");
+      el.classList.toggle("open", open);
+      if (id === "kite-panel") {
+        $("kite-btn").classList.toggle("open", open);
+      }
+    }
+    function toggleKitePanel() {
+      toggleCollapse("kite-panel");
+      if ($("kite-panel").classList.contains("open")) {
+        $("access_token").focus();
+      }
+    }
+    function toggleAdvKeys() {
+      const block = $("adv-keys");
+      const open = !block.classList.contains("open");
+      block.classList.toggle("open", open);
+      $("adv-toggle").textContent = open
+        ? "Hide API key & secret"
+        : "Show API key & secret (masked)";
+    }
+
     async function api(path, opts={}) {
       const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
       const data = await res.json().catch(() => ({ ok:false, error:"bad json" }));
@@ -259,8 +328,12 @@
       try {
         const d = await api("/api/status");
         render(d.state, d.ws);
-        $("b-live").textContent = d.config.live_trading ? "LIVE" : "DRY-RUN";
-        $("b-live").className = "badge " + (d.config.live_trading ? "live" : "warn");
+        setLiveMode(!!d.config.live_trading);
+        if (d.config && typeof d.config.has_token === "boolean") {
+          const badge = $("kite-token-badge");
+          badge.textContent = d.config.has_token ? "TOKEN SET" : "TOKEN NEEDED";
+          badge.className = "badge " + (d.config.has_token ? "on" : "warn");
+        }
       } catch (_) {}
     }
     async function activate() {
@@ -280,9 +353,8 @@
       if (!live && !confirm("Enable LIVE trading? Real orders will hit Zerodha.")) return;
       try {
         const d = await api("/api/live", { method:"POST", body: JSON.stringify({ enabled: !live }) });
-        $("b-live").textContent = d.live_trading ? "LIVE" : "DRY-RUN";
-        $("b-live").className = "badge " + (d.live_trading ? "live" : "warn");
-        msg(d.live_trading ? "LIVE ON" : "Dry-run", d.live_trading ? "err" : "ok");
+        setLiveMode(!!d.live_trading);
+        msg(d.live_trading ? "LIVE ON" : "Dry-run / OFFLINE", d.live_trading ? "err" : "ok");
       } catch(e){ msg(e.message,"err"); }
     }
     async function saveSettings() {
@@ -298,13 +370,31 @@
     }
     async function saveCreds() {
       try {
-        const d = await api("/api/credentials", { method:"POST", body: JSON.stringify({
-          api_key: $("api_key").value,
-          api_secret: $("api_secret").value,
-          access_token: $("access_token").value,
-          request_token: $("request_token").value,
-        })});
-        msg(d.profile ? ("Session OK · " + (d.profile.user_id || d.profile.user_name || "ok")) : "Saved", "ok");
+        const payload = {
+          access_token: $("access_token").value.trim(),
+          request_token: $("request_token").value.trim(),
+        };
+        // Only send key/secret when user typed a new value (not blank / masked).
+        const key = $("api_key").value.trim();
+        const secret = $("api_secret").value.trim();
+        if (key && !key.startsWith("•")) payload.api_key = key;
+        if (secret && !secret.startsWith("•")) payload.api_secret = secret;
+        if (!payload.access_token && !payload.request_token && !payload.api_key && !payload.api_secret) {
+          msg("Paste today’s access token (or request token)", "err");
+          toggleCollapse("kite-panel", true);
+          $("access_token").focus();
+          return;
+        }
+        const d = await api("/api/credentials", { method:"POST", body: JSON.stringify(payload) });
+        $("access_token").value = "";
+        $("request_token").value = "";
+        $("api_key").value = "";
+        $("api_secret").value = "";
+        $("access_token").placeholder = "token saved — paste new token to replace";
+        const badge = $("kite-token-badge");
+        badge.textContent = "TOKEN SET";
+        badge.className = "badge on";
+        msg(d.profile ? ("Session OK · " + (d.profile.user_id || d.profile.user_name || "ok")) : "Token saved", "ok");
       } catch(e){ msg(e.message,"err"); }
     }
     async function openLogin() {
