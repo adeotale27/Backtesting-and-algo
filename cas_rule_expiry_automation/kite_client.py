@@ -84,6 +84,55 @@ class KiteClient:
             self.connect()
         return self.kite.historical_data(token, start, end, interval)
 
+    def previous_session_close(self, instrument_token: int, asof=None) -> float:
+        """Official previous trading-day close from daily history.
+
+        Do NOT use quote ``ohlc.close`` overnight — Kite keeps that as the
+        prior session until ~06:30 IST BOD, so after hours it is one day stale.
+        Historical daily bars already carry the latest completed session close.
+        """
+        from datetime import date, datetime, timedelta
+
+        from cas_rule_expiry_automation.time_utils import get_ist_now
+
+        if asof is None:
+            asof = get_ist_now().date()
+        elif isinstance(asof, datetime):
+            asof = asof.date()
+        elif not isinstance(asof, date):
+            asof = date.fromisoformat(str(asof)[:10])
+
+        start = asof - timedelta(days=15)
+        bars = self.historical(int(instrument_token), start, asof, "day") or []
+
+        def _bar_day(bar) -> Optional[date]:
+            dt = bar.get("date")
+            if dt is None:
+                return None
+            if isinstance(dt, datetime):
+                try:
+                    return dt.astimezone().date() if dt.tzinfo else dt.date()
+                except Exception:
+                    return dt.date()
+            if isinstance(dt, date):
+                return dt
+            try:
+                return date.fromisoformat(str(dt)[:10])
+            except Exception:
+                return None
+
+        # Prefer last bar strictly before ``asof`` (previous session).
+        prior = []
+        for b in bars:
+            d = _bar_day(b)
+            if d is not None and d < asof:
+                prior.append(b)
+        if prior:
+            return float(prior[-1]["close"])
+        if bars:
+            return float(bars[-1]["close"])
+        return 0.0
+
     def place_market_sell(
         self,
         exchange: str,

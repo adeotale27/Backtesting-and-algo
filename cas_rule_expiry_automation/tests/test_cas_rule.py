@@ -408,6 +408,29 @@ def test_ws_heartbeat_does_not_persist(tmp_path):
     assert store.snapshot()["last_ltp"]["SENSEX"] == 79000.5
 
 
+def test_previous_session_close_skips_today_bar():
+    """Baseline must be prior session — not quote.ohlc.close (stale overnight)."""
+    from cas_rule_expiry_automation.kite_client import KiteClient
+    from datetime import date, datetime
+    from types import SimpleNamespace
+
+    class FakeKite:
+        def historical_data(self, token, start, end, interval):
+            assert interval == "day"
+            return [
+                {"date": datetime(2026, 8, 5, 0, 0), "close": 78581.0},
+                {"date": datetime(2026, 8, 6, 0, 0), "close": 78954.76},
+            ]
+
+    client = KiteClient.__new__(KiteClient)
+    client.config = SimpleNamespace()
+    client.kite = FakeKite()
+    # On 7 Aug → previous session is 6 Aug CAS close
+    assert client.previous_session_close(265, asof=date(2026, 8, 7)) == 78954.76
+    # On 6 Aug during day → previous session is 5 Aug
+    assert client.previous_session_close(265, asof=date(2026, 8, 6)) == 78581.0
+
+
 def test_baseline_once_ltp_only_when_cas_active(tmp_path):
     """Last close set once; LTP ignored until CAS window is activated."""
     from cas_rule_expiry_automation.state import StateStore

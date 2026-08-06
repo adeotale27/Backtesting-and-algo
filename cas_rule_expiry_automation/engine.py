@@ -111,21 +111,16 @@ class AutomationEngine:
         return bool(key) and not key.upper().startswith("YOUR_") and bool(tok)
 
     def _pull_baselines_once(self) -> None:
-        """One REST quote at app start: prev-day close for Prices → Last close.
+        """One pull at app start: previous trading-day close for Prices → Last close.
 
-        Never refreshes again the same IST day. LTP is NOT pulled here.
+        Uses historical daily (not quote.ohlc.close) so after-hours / pre-BOD
+        values are the latest completed session, not one day stale.
         """
         day = get_ist_now().date().isoformat()
         if self._baselines_day != day:
             self._baselines_pulled = False
             self._baselines_day = day
         if self._baselines_pulled:
-            return
-        snap = self.store.snapshot()
-        if snap.get("baseline_close") and str(snap.get("baselines_pulled_at") or "").startswith(
-            day
-        ):
-            self._baselines_pulled = True
             return
         if not self._token_ready():
             return
@@ -134,15 +129,17 @@ class AutomationEngine:
             client = KiteClient(self.config)
             client.connect()
             self.client = client
-            keys = [INDEX_META[i]["spot_key"] for i in ("NIFTY", "SENSEX")]
-            quotes = client.quote(keys)
+            asof = get_ist_now().date()
             for index in ("NIFTY", "SENSEX"):
-                key = INDEX_META[index]["spot_key"]
-                q = quotes.get(key) or {}
-                prev = float((q.get("ohlc") or {}).get("close") or 0)
+                token = int(INDEX_META[index]["token"])
+                prev = client.previous_session_close(token, asof=asof)
                 if prev:
                     self.store.set_baseline(index, prev)
-                    logger.info("Startup baseline %s last_close=%.2f (once)", index, prev)
+                    logger.info(
+                        "Startup baseline %s last_close=%.2f (hist prev session, once)",
+                        index,
+                        prev,
+                    )
             self._baselines_pulled = True
         except Exception as exc:
             logger.warning("Startup baseline pull skipped: %s", exc)

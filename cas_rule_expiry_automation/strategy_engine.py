@@ -17,6 +17,7 @@ from cas_rule_expiry_automation.kite_client import KiteClient
 from cas_rule_expiry_automation.order_engine import OrderEngine
 from cas_rule_expiry_automation.state import StateStore
 from cas_rule_expiry_automation.strike_resolver import StrikeCache
+from cas_rule_expiry_automation.time_utils import get_ist_now
 from cas_rule_expiry_automation.timing import new_detect_event
 
 logger = logging.getLogger(__name__)
@@ -75,25 +76,31 @@ class StrategyEngine:
         return indexes
 
     def capture_baselines(self) -> None:
-        """Load prev-day close into strategy (for CAS detect). Prefer startup pull.
+        """Load prev-session close into strategy (for CAS detect) + prewarm strikes.
 
-        Does NOT stream LTP — LTP only arrives via WebSocket while CAS is active.
-        One quote here is only for strike prewarm spot if needed.
+        Uses historical daily close (not quote.ohlc.close). LTP still only via WS.
         """
+        asof = get_ist_now().date()
         for index in self.active_indexes:
-            # Reuse once-pulled baseline from store when available
-            snap = self.store.snapshot()
-            cached = (snap.get("baseline_close") or {}).get(index.upper())
-            if cached:
-                self._baseline_close[index] = float(cached)
+            token = int(INDEX_META[index]["token"])
+            try:
+                prev = self.client.previous_session_close(token, asof=asof)
+            except Exception as exc:
+                logger.warning("hist baseline %s failed: %s — trying quote", index, exc)
+                key = INDEX_META[index]["spot_key"]
+                q = self.client.quote([key])[key]
+                prev = float(q.get("ohlc", {}).get("close") or 0)
 
-            key = INDEX_META[index]["spot_key"]
-            q = self.client.quote([key])[key]
-            prev = float(q.get("ohlc", {}).get("close") or 0)
-            ltp = float(q.get("last_price") or 0)
             if prev:
                 self._baseline_close[index] = prev
                 self.store.set_baseline(index, prev)
+
+            # Spot for strike prewarm only (one quote; not shown as streaming LTP)
+            key = INDEX_META[index]["spot_key"]
+            try:
+                ltp = float(self.client.quote([key])[key].get("last_price") or 0)
+            except Exception:
+                ltp = 0.0
             logger.info("[%s] baseline close=%.2f (spot for prewarm=%.2f)", index, prev, ltp)
             spot = ltp or prev
             if spot > 0:
