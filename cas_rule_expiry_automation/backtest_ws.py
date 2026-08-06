@@ -280,11 +280,22 @@ def run_ws_backtest(
     start: Optional[date] = None,
     end: Optional[date] = None,
     capital: Optional[float] = None,
+    close_overrides: Optional[Dict[str, float]] = None,
 ) -> BacktestResult:
+    """Run expiry-day WebSocket replay backtest.
+
+    Args:
+        close_overrides: Optional map of real CAS closes to force when Kite
+            historical is missing. Keys accepted:
+              - ``YYYY-MM-DD`` (applies to that day's index)
+              - ``YYYY-MM-DD:SENSEX`` / ``YYYY-MM-DD:NIFTY``
+              - bare index name ``SENSEX`` / ``NIFTY`` (applies every day)
+    """
     cfg = config or load_config()
     end = end or date.today()
     start = start or (end - timedelta(days=90))
     capital = float(capital or cfg.default_capital)
+    overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
         "Ticks replayed through the same WebSocket TickBus contract as live trading.",
         "cas_detected_at is stamped in the 15:28–15:30 IST CAS window.",
@@ -294,7 +305,7 @@ def run_ws_backtest(
             f"Entry premium = max(BS(IV={cfg.assumed_iv}%, T={cfg.entry_time_minutes}m), "
             f"CAS OTM floor ₹{cfg.assumed_cas_otm_premium}); settlement = intrinsic."
         ),
-        "If data_source=synthetic, close is NOT the exchange CAS print — connect Kite for real closes.",
+        "Close priority: manual override → Kite daily/minute → synthetic (last resort).",
     ]
 
     equity = capital
@@ -306,6 +317,17 @@ def run_ws_backtest(
     ws_ticks_total = 0
     done_ms_list: List[float] = []
 
+    def _resolve_override(day: date, index: str) -> Optional[float]:
+        keys = [
+            f"{day.isoformat()}:{index}".upper(),
+            day.isoformat().upper(),
+            index.upper(),
+        ]
+        for key in keys:
+            if key in overrides:
+                return float(overrides[key])
+        return None
+
     d = start
     while d <= end:
         for index in indexes_for_date(d, cfg):
@@ -315,9 +337,11 @@ def run_ws_backtest(
             lot = int(meta["default_lot"])
             qty = cfg.lots * lot
 
+            manual_close = _resolve_override(d, index)
             data_source = "synthetic"
             day_close: Optional[float] = None
             candles: List[dict] = []
+
             if kite is not None:
                 day_close = _fetch_day_close(kite, index, d)
                 candles = _fetch_minute_candles(kite, index, d)
@@ -327,24 +351,35 @@ def run_ws_backtest(
                     data_source = "kite_daily"
                     candles = _synthetic_day_candles(index, d, anchor_close=day_close)
 
-            if not candles:
-                # No Kite session → synthetic path (will NOT match real Sensex/Nifty)
-                candles = _synthetic_day_candles(index, d)
-                data_source = "synthetic"
+            # Manual override wins for the CAS equilibrium price
+            cas_close_override = manual_close if manual_close is not None else day_close
+            if manual_close is not None:
+                data_source = (
+                    f"{data_source}+manual_close"
+                    if data_source != "synthetic"
+                    else "manual_close"
+                )
+                candles = _synthetic_day_candles(index, d, anchor_close=manual_close)
                 notes.append(
-                    f"{d} {index}: using SYNTHETIC close (no Kite historical). "
-                    "Connect access_token for real CAS close."
+                    f"{d} {index}: using MANUAL close override {manual_close}"
                 )
 
-            # Prefer official day close as CAS equilibrium when available
-            cas_close_override = day_close
+            if not candles:
+                candles = _synthetic_day_candles(
+                    index, d, anchor_close=cas_close_override
+                )
+                if cas_close_override is None:
+                    data_source = "synthetic"
+                    notes.append(
+                        f"{d} {index}: SYNTHETIC close (no Kite + no override). "
+                        "Paste access_token or set Force close."
+                    )
 
             cas_ts = _cas_window_stamp(d, hash(index) % 1000)
             baseline = float(candles[0]["open"])
             ticks = candle_to_ticks(token, candles, ticks_per_candle=4)
             if ticks:
                 if cas_close_override is not None:
-                    # Force final CAS tick to the real day close
                     ticks[-1]["last_price"] = float(cas_close_override)
                     ticks[-1]["ohlc"] = {
                         **(ticks[-1].get("ohlc") or {}),
@@ -376,7 +411,9 @@ def run_ws_backtest(
                     else float(probe.fired_close)
                 )
                 trigger = probe.trigger or "ws"
-                detect_iso = probe.cas_detected_at or cas_ts.isoformat(timespec="milliseconds")
+                detect_iso = probe.cas_detected_at or cas_ts.isoformat(
+                    timespec="milliseconds"
+                )
                 detect_perf = probe._detect_perf or time.perf_counter()
 
             atm, ce_k, pe_k = otm_strikes(
@@ -446,7 +483,9 @@ def run_ws_backtest(
                     ),
                 )
             )
-            curve.append({"date": d.isoformat(), "equity": round(equity, 2), "index": index})
+            curve.append(
+                {"date": d.isoformat(), "equity": round(equity, 2), "index": index}
+            )
 
         d += timedelta(days=1)
 

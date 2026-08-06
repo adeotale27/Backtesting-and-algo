@@ -158,10 +158,24 @@
         <div><label>Start</label><input id="bt_start" type="date" /></div>
         <div><label>End</label><input id="bt_end" type="date" /></div>
         <div><label>Capital</label><input id="bt_capital" type="number" value="{{ cfg.default_capital|int }}" /></div>
+        <div><label>Force close (optional)</label><input id="bt_force_close" type="number" step="0.01" placeholder="e.g. 78954.76" /></div>
+      </div>
+      <div class="row" style="margin-top:0.5rem">
+        <div>
+          <label>Force close applies to</label>
+          <select id="bt_force_index">
+            <option value="SENSEX">SENSEX</option>
+            <option value="NIFTY">NIFTY</option>
+          </select>
+        </div>
         <div style="display:flex;align-items:end">
           <button class="btn-primary" style="width:100%" onclick="runBacktest()">Run WS backtest</button>
         </div>
       </div>
+      <p class="hint" style="margin-top:0.6rem">
+        Close priority: <strong>Force close</strong> → Kite historical → synthetic.
+        If your token is expired, paste the real CAS close here (e.g. Sensex <strong>78954.76</strong> for 06-08-2026).
+      </p>
       <div class="kpis" id="bt-kpis"></div>
       <div id="bt-notes" class="hint"></div>
       <div style="overflow:auto;max-height:360px">
@@ -312,6 +326,8 @@
           start: $("bt_start").value || null,
           end: $("bt_end").value || null,
           capital: Number($("bt_capital").value || 500000),
+          force_close: $("bt_force_close").value || null,
+          force_index: $("bt_force_index").value || "SENSEX",
         })});
         const r = d.result;
         $("bt-kpis").innerHTML = [

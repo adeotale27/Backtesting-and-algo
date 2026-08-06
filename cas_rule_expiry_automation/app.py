@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import wraps
 from typing import Callable
 
@@ -228,15 +228,51 @@ def api_backtest():
     start = parse(data.get("start"), date(end.year, max(1, end.month - 3), 1))
     capital = float(data.get("capital") or cfg.default_capital)
 
+    # Optional real CAS close override (fixes synthetic wrong closes)
+    close_overrides = {}
+    force_close = data.get("force_close")
+    force_index = (data.get("force_index") or "SENSEX").upper()
+    if force_close not in (None, "", 0, "0"):
+        close_overrides[force_index] = float(force_close)
+        # Also bind to each day in range for clarity
+        d = start
+        while d <= end:
+            close_overrides[f"{d.isoformat()}:{force_index}"] = float(force_close)
+            d += timedelta(days=1)
+    # Allow map form: {"2026-08-06:SENSEX": 78954.76}
+    raw_map = data.get("close_overrides") or {}
+    if isinstance(raw_map, dict):
+        for k, v in raw_map.items():
+            try:
+                close_overrides[str(k)] = float(v)
+            except (TypeError, ValueError):
+                pass
+
     kite = None
+    kite_error = None
     try:
         if cfg.access_token:
             kite = KiteClient(cfg).connect()
+            kite.profile()  # validate token early
     except Exception as exc:
+        kite = None
+        kite_error = str(exc)
         logger.warning("backtest without kite: %s", exc)
 
-    result = run_ws_backtest(kite=kite, config=cfg, start=start, end=end, capital=capital)
-    return jsonify({"ok": True, "result": result.to_dict()})
+    result = run_ws_backtest(
+        kite=kite,
+        config=cfg,
+        start=start,
+        end=end,
+        capital=capital,
+        close_overrides=close_overrides or None,
+    )
+    out = result.to_dict()
+    if kite_error:
+        out.setdefault("notes", []).insert(
+            0, f"Kite unavailable ({kite_error}). Use Force close or refresh access_token."
+        )
+    return jsonify({"ok": True, "result": out, "kite_ok": kite is not None})
 
 
 def main() -> None:
