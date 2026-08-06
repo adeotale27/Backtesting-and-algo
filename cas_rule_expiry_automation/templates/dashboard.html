@@ -185,8 +185,8 @@
               <th>Date</th><th>Index</th><th>Close</th><th>ATM</th>
               <th>CE strike</th><th>PE strike</th>
               <th>CE prem</th><th>PE prem</th>
-              <th>CE settle</th><th>PE settle</th>
-              <th>Qty</th><th>Source</th>
+              <th>CE exit</th><th>PE exit</th>
+              <th>Qty</th><th>Spot src</th><th>Prem src</th>
               <th>CAS detected</th><th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
             </tr>
           </thead>
@@ -347,7 +347,7 @@
             <td><strong>${t.ce_strike}</strong></td><td><strong>${t.pe_strike}</strong></td>
             <td>${t.ce_premium}</td><td>${t.pe_premium}</td>
             <td>${t.ce_settlement}</td><td>${t.pe_settlement}</td>
-            <td>${t.quantity}</td><td>${t.data_source||""}</td>
+            <td>${t.quantity}</td><td>${t.data_source||""}</td><td>${t.premium_source||""}</td>
             <td>${(t.cas_detected_at||"").replace("T"," ").slice(11,23)}</td>
             <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td><td>${t.pnl}</td>
           </tr>`

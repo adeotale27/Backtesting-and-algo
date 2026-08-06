@@ -97,14 +97,13 @@ def test_ws_backtest_synthetic(tmp_path):
         assert t["data_source"] == "synthetic"
 
 
-def test_cas_premium_floor_near_atm():
+def test_cas_premium_bs_fallback_no_floor():
     from cas_rule_expiry_automation.backtest_ws import cas_entry_premium
 
-    # Sensex ~78955, ATM 79000, CE 79100 / PE 78900 with floor 100
-    ce = cas_entry_premium(78954.76, 79100, "CE", 100, 35.0, 15.0, 100.0)
-    pe = cas_entry_premium(78954.76, 78900, "PE", 100, 35.0, 15.0, 100.0)
-    assert ce >= 50
-    assert pe >= 50
+    # With floor=0, premium is pure BS (can be small near expiry) — not forced to 100
+    ce = cas_entry_premium(78954.76, 79100, "CE", 100, 35.0, 15.0, 0.0)
+    assert ce >= 0
+    assert ce < 100  # should NOT be the old hardcoded floor
 
 
 def test_timing_ms_between():

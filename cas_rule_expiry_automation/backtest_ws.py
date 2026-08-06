@@ -44,6 +44,7 @@ class BacktestTrade:
     ticks_replayed: int
     trigger: str
     data_source: str = "synthetic"
+    premium_source: str = "bs_fallback"
     cas_detected_at: str = ""
     ce_sold_at: str = ""
     pe_sold_at: str = ""
@@ -105,33 +106,160 @@ def cas_entry_premium(
     strike_gap: int,
     iv: float,
     entry_minutes: float,
-    otm_floor: float,
+    otm_floor: float = 0.0,
 ) -> float:
-    """Premium at CAS detect for ATM±N legs.
+    """Fallback premium estimator when live option candles are unavailable.
 
-    Live observation: near-ATM OTM on expiry still trades ~₹100 just as CAS
-    prints, then collapses. Pure BS with T=5min underprices that badly.
-    Model = max(BS(elevated T/IV), floor decayed by OTM distance).
+    Uses Black-Scholes only. ``otm_floor`` is optional and OFF by default
+    (set >0 only if you explicitly want a synthetic floor).
     """
-    if opt_type == "CE":
-        otm_pts = max(0.0, strike - spot)
-    else:
-        otm_pts = max(0.0, spot - strike)
-
     t_days = max(entry_minutes, 1.0) / (60.0 * 24.0)
     bs = bs_price(spot, strike, iv, t_days, opt_type)
-
-    # Floor: full assumed premium for ~ATM±1 (within 1.5 strike gaps), then decay
-    steps = otm_pts / max(strike_gap, 1)
-    if steps <= 1.5:
-        floor = float(otm_floor)
-    else:
-        floor = float(otm_floor) * math.exp(-(steps - 1.5) * 0.9)
-    # ITM legs: at least intrinsic + small time value
     intr = intrinsic(spot, strike, opt_type)
-    if intr > 0:
-        return max(bs, intr + max(floor * 0.25, 5.0))
-    return max(bs, floor)
+    if otm_floor and otm_floor > 0:
+        if opt_type == "CE":
+            otm_pts = max(0.0, strike - spot)
+        else:
+            otm_pts = max(0.0, spot - strike)
+        steps = otm_pts / max(strike_gap, 1)
+        floor = float(otm_floor) if steps <= 1.5 else float(otm_floor) * math.exp(
+            -(steps - 1.5) * 0.9
+        )
+        if intr > 0:
+            return max(bs, intr + max(floor * 0.25, 5.0))
+        return max(bs, floor)
+    return max(bs, intr)
+
+
+def _find_option_token(
+    kite: Any, index: str, expiry: date, strike: float, opt_type: str
+) -> Optional[Dict[str, Any]]:
+    meta = INDEX_META[index]
+    try:
+        instruments = kite.instruments(meta["exchange"])
+    except Exception as exc:
+        logger.warning("instruments(%s) failed: %s", meta["exchange"], exc)
+        return None
+    for inst in instruments:
+        if (
+            str(inst.get("tradingsymbol", "")).startswith(meta["name"])
+            and inst.get("expiry") == expiry
+            and inst.get("instrument_type") == opt_type
+            and abs(float(inst.get("strike") or 0) - float(strike)) < 0.01
+        ):
+            return inst
+    return None
+
+
+def _option_minute_bars(
+    kite: Any, instrument_token: int, d: date
+) -> List[dict]:
+    try:
+        from_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=15, minutes=15)
+        to_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=15, minutes=35)
+        return list(kite.historical_data(instrument_token, from_dt, to_dt, "minute") or [])
+    except Exception as exc:
+        logger.warning("option historical failed token=%s: %s", instrument_token, exc)
+        return []
+
+
+def _premium_from_bars(
+    bars: List[dict], detect_ts: datetime
+) -> tuple[Optional[float], Optional[float], str]:
+    """Pick entry premium at/just before CAS detect, exit near end of bars.
+
+    Returns (entry, exit, detail).
+    """
+    if not bars:
+        return None, None, "no_option_bars"
+    # Normalize dates
+    def _aware(dt):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=IST)
+        return dt.astimezone(IST)
+
+    detect = _aware(detect_ts)
+    # Prefer bar whose minute == detect minute; else nearest earlier bar
+    ranked = sorted(bars, key=lambda b: abs((_aware(b["date"]) - detect).total_seconds()))
+    entry_bar = ranked[0]
+    # If detect is mid-collapse, also consider previous minute open (better "as soon as")
+    earlier = [
+        b for b in bars if _aware(b["date"]) <= detect
+    ]
+    if earlier:
+        entry_bar = earlier[-1]
+    entry = float(entry_bar.get("open") or entry_bar.get("close") or 0)
+    # Exit = last bar close (post-CAS collapse) 
+    exit_px = float(bars[-1].get("close") or 0)
+    detail = (
+        f"entry@{_aware(entry_bar['date']).strftime('%H:%M')} open={entry:.2f}; "
+        f"exit@{_aware(bars[-1]['date']).strftime('%H:%M')} close={exit_px:.2f}"
+    )
+    return entry, exit_px, detail
+
+
+def _live_option_pnl_legs(
+    kite: Any,
+    index: str,
+    expiry: date,
+    close_px: float,
+    ce_strike: int,
+    pe_strike: int,
+    detect_ts: datetime,
+    qty: int,
+    iv: float,
+    entry_minutes: float,
+    strike_gap: int,
+) -> Dict[str, Any]:
+    """Resolve real CE/PE premiums from Kite; fall back to BS if missing."""
+    out: Dict[str, Any] = {
+        "ce_premium": None,
+        "pe_premium": None,
+        "ce_exit": None,
+        "pe_exit": None,
+        "premium_source": "bs_fallback",
+        "detail": "",
+    }
+    details = []
+    for opt, strike, key_p, key_e in (
+        ("CE", ce_strike, "ce_premium", "ce_exit"),
+        ("PE", pe_strike, "pe_premium", "pe_exit"),
+    ):
+        inst = _find_option_token(kite, index, expiry, strike, opt)
+        if not inst:
+            details.append(f"{opt}{strike}:instrument_missing")
+            continue
+        bars = _option_minute_bars(kite, int(inst["instrument_token"]), expiry)
+        entry, exit_px, detail = _premium_from_bars(bars, detect_ts)
+        if entry is None:
+            details.append(f"{opt}{strike}:no_bars")
+            continue
+        out[key_p] = entry
+        out[key_e] = exit_px
+        details.append(f"{inst['tradingsymbol']}:{detail}")
+
+    if out["ce_premium"] is None:
+        out["ce_premium"] = cas_entry_premium(
+            close_px, ce_strike, "CE", strike_gap, iv, entry_minutes, 0.0
+        )
+        out["ce_exit"] = intrinsic(close_px, ce_strike, "CE")
+        details.append("CE:bs_fallback")
+    if out["pe_premium"] is None:
+        out["pe_premium"] = cas_entry_premium(
+            close_px, pe_strike, "PE", strike_gap, iv, entry_minutes, 0.0
+        )
+        out["pe_exit"] = intrinsic(close_px, pe_strike, "PE")
+        details.append("PE:bs_fallback")
+
+    if any("open=" in d for d in details):
+        out["premium_source"] = "kite_option_minute"
+    out["detail"] = " | ".join(details)
+    # P&L from short premium
+    out["pnl"] = (
+        (float(out["ce_premium"]) - float(out["ce_exit"]))
+        + (float(out["pe_premium"]) - float(out["pe_exit"]))
+    ) * qty
+    return out
 
 
 def _synthetic_day_candles(
@@ -302,8 +430,8 @@ def run_ws_backtest(
         "ce_sold_at / pe_sold_at measure detect→sell path latency on the replay bus.",
         f"OTM steps CE=+{cfg.ce_otm_steps} PE=-{cfg.pe_otm_steps}, lots={cfg.lots}.",
         (
-            f"Entry premium = max(BS(IV={cfg.assumed_iv}%, T={cfg.entry_time_minutes}m), "
-            f"CAS OTM floor ₹{cfg.assumed_cas_otm_premium}); settlement = intrinsic."
+            "Entry premium: real Kite option minute candles at CAS detect when available; "
+            "otherwise BS fallback (no fixed ₹100 floor)."
         ),
         "Close priority: manual override → Kite daily/minute → synthetic (last resort).",
     ]
@@ -426,27 +554,41 @@ def run_ws_backtest(
             if timing.detect_to_done_ms is not None:
                 done_ms_list.append(float(timing.detect_to_done_ms))
 
-            ce_p = cas_entry_premium(
-                close_px,
-                ce_k,
-                "CE",
-                gap,
-                cfg.assumed_iv,
-                cfg.entry_time_minutes,
-                cfg.assumed_cas_otm_premium,
-            )
-            pe_p = cas_entry_premium(
-                close_px,
-                pe_k,
-                "PE",
-                gap,
-                cfg.assumed_iv,
-                cfg.entry_time_minutes,
-                cfg.assumed_cas_otm_premium,
-            )
-            ce_s = intrinsic(close_px, ce_k, "CE")
-            pe_s = intrinsic(close_px, pe_k, "PE")
-            pnl = ((ce_p - ce_s) + (pe_p - pe_s)) * qty
+            detect_dt = datetime.fromisoformat(detect_iso)
+            if kite is not None:
+                legs = _live_option_pnl_legs(
+                    kite=kite,
+                    index=index,
+                    expiry=d,
+                    close_px=close_px,
+                    ce_strike=ce_k,
+                    pe_strike=pe_k,
+                    detect_ts=detect_dt,
+                    qty=qty,
+                    iv=cfg.assumed_iv,
+                    entry_minutes=cfg.entry_time_minutes,
+                    strike_gap=gap,
+                )
+                ce_p = float(legs["ce_premium"])
+                pe_p = float(legs["pe_premium"])
+                ce_s = float(legs["ce_exit"])
+                pe_s = float(legs["pe_exit"])
+                pnl = float(legs["pnl"])
+                premium_source = str(legs["premium_source"])
+                prem_detail = str(legs["detail"])
+            else:
+                ce_p = cas_entry_premium(
+                    close_px, ce_k, "CE", gap, cfg.assumed_iv, cfg.entry_time_minutes, 0.0
+                )
+                pe_p = cas_entry_premium(
+                    close_px, pe_k, "PE", gap, cfg.assumed_iv, cfg.entry_time_minutes, 0.0
+                )
+                ce_s = intrinsic(close_px, ce_k, "CE")
+                pe_s = intrinsic(close_px, pe_k, "PE")
+                pnl = ((ce_p - ce_s) + (pe_p - pe_s)) * qty
+                premium_source = "bs_fallback"
+                prem_detail = "no kite session"
+
             equity += pnl
             peak = max(peak, equity)
             dd = (peak - equity) / peak * 100 if peak else 0
@@ -470,6 +612,7 @@ def run_ws_backtest(
                     ticks_replayed=n,
                     trigger=trigger,
                     data_source=data_source,
+                    premium_source=premium_source,
                     cas_detected_at=timing.cas_detected_at,
                     ce_sold_at=timing.ce_sold_at or "",
                     pe_sold_at=timing.pe_sold_at or "",
@@ -477,9 +620,9 @@ def run_ws_backtest(
                     detect_to_pe_ms=float(timing.detect_to_pe_ms or 0),
                     detect_to_done_ms=float(timing.detect_to_done_ms or 0),
                     note=(
-                        f"SELL CE {ce_k} @₹{ce_p:.2f} → settle ₹{ce_s:.2f}; "
-                        f"SELL PE {pe_k} @₹{pe_p:.2f} → settle ₹{pe_s:.2f}; "
-                        f"qty={qty} ({cfg.lots}×{lot}); source={data_source}"
+                        f"SELL CE {ce_k} @₹{ce_p:.2f} → exit ₹{ce_s:.2f}; "
+                        f"SELL PE {pe_k} @₹{pe_p:.2f} → exit ₹{pe_s:.2f}; "
+                        f"qty={qty}; spot={data_source}; prem={premium_source}; {prem_detail}"
                     ),
                 )
             )

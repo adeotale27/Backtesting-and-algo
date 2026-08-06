@@ -55,9 +55,9 @@ class AppConfig:
 
     default_capital: float = 500_000.0
     assumed_iv: float = 35.0
-    # Floor premium (₹) for near-ATM OTM legs at CAS print — matches live ~₹100 observation
-    assumed_cas_otm_premium: float = 100.0
-    # Minutes of time-value assumed remaining when CAS close prints
+    # Optional synthetic floor (₹). Default 0 — prefer real Kite option LTPs.
+    assumed_cas_otm_premium: float = 0.0
+    # Minutes of time-value assumed remaining when CAS close prints (BS fallback only)
     entry_time_minutes: float = 15.0
     tick_interval_ms: int = 100
 
@@ -114,7 +114,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         default_capital=p.getfloat("backtest", "default_capital", fallback=500_000),
         assumed_iv=p.getfloat("backtest", "assumed_iv", fallback=35.0),
         assumed_cas_otm_premium=p.getfloat(
-            "backtest", "assumed_cas_otm_premium", fallback=100.0
+            "backtest", "assumed_cas_otm_premium", fallback=0.0
         ),
         entry_time_minutes=p.getfloat(
             "backtest", "entry_time_minutes", fallback=15.0

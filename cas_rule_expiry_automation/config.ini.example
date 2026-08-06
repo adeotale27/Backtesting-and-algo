@@ -50,8 +50,9 @@ port = 5030
 default_capital = 500000
 # Expiry-afternoon IV (%) used in BS; raised vs calm IV because expiry is jumpy
 assumed_iv = 35.0
-# Floor premium (₹) for near-ATM OTM at CAS print (your live observation ~100)
-assumed_cas_otm_premium = 100.0
+# Optional synthetic OTM premium floor (₹). Keep 0 — use real Kite option
+# prices when available. Only set >0 for offline demos without market data.
+assumed_cas_otm_premium = 0.0
 # Minutes of time value left when we sell at CAS detect
 entry_time_minutes = 15.0
 # Simulated WebSocket tick interval when replaying candles (ms)
