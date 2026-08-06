@@ -281,6 +281,28 @@ def test_parallel_market_sell_both_legs(tmp_path):
     assert elapsed < 25, f"expected parallel ~10ms, got {elapsed:.1f}ms"
 
 
+def test_watch_start_migrates_1528_to_1527(tmp_path):
+    from cas_rule_expiry_automation.config import load_config
+
+    cfg_path = tmp_path / "config.ini"
+    cfg_path.write_text(
+        "[cas_window]\nwatch_start = 15:28:00\nwatch_end = 15:35:00\n"
+        "[kite]\napi_key = x\napi_secret = y\naccess_token =\n"
+        "[admin]\nusername = a\npassword = b\n"
+        "[strategy]\nlots = 1\n"
+        "[latency]\nws_mode = full\n"
+        "[safety]\nlive_trading = false\n"
+        "[server]\nhost = 127.0.0.1\nport = 5030\n"
+        "[backtest]\ndefault_capital = 500000\n"
+    )
+    cfg = load_config(str(cfg_path))
+    assert cfg.watch_start.hour == 15 and cfg.watch_start.minute == 27
+    # Persisted
+    text = cfg_path.read_text()
+    assert "15:27:00" in text
+    assert "15:28:00" not in text
+
+
 def test_app_login_page(tmp_path):
     # Point config via ensuring package config exists from example
     from cas_rule_expiry_automation.config import ensure_config

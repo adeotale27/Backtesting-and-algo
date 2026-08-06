@@ -78,6 +78,20 @@ def load_config(path: Optional[str] = None) -> AppConfig:
     cfg_path = ensure_config(path)
     p = configparser.ConfigParser()
     p.read(cfg_path)
+
+    # Migrate older installs that still watch from 15:28 — must start at 15:27
+    # so a 15:28:00 CAS print is never missed.
+    raw_start = p.get("cas_window", "watch_start", fallback="15:27:00").strip()
+    if raw_start in ("15:28:00", "15:28", "15:28:0"):
+        if not p.has_section("cas_window"):
+            p.add_section("cas_window")
+        p.set("cas_window", "watch_start", "15:27:00")
+        tmp = cfg_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            p.write(fh)
+        os.replace(tmp, cfg_path)
+        raw_start = "15:27:00"
+
     return AppConfig(
         api_key=p.get("kite", "api_key", fallback="").strip(),
         api_secret=p.get("kite", "api_secret", fallback="").strip(),
@@ -104,9 +118,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         strike_resolve_budget_ms=p.getint(
             "latency", "strike_resolve_budget_ms", fallback=5
         ),
-        watch_start=_parse_time(
-            p.get("cas_window", "watch_start", fallback="15:27:00")
-        ),
+        watch_start=_parse_time(raw_start or "15:27:00"),
         watch_end=_parse_time(p.get("cas_window", "watch_end", fallback="15:35:00")),
         live_trading=p.getboolean("safety", "live_trading", fallback=False),
         host=p.get("server", "host", fallback="127.0.0.1").strip(),
