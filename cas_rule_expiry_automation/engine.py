@@ -1,4 +1,4 @@
-"""Process orchestration — activate → WebSocket → strategy."""
+"""Process orchestration — baselines once at start; LTP only in CAS window."""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ class AutomationEngine:
         self._indexes_day: Optional[str] = None
         self._indexes_cache: list[str] = []
         self._last_ws_status_at: float = 0.0
+        self._baselines_pulled = False
+        self._baselines_day: Optional[str] = None
 
     @property
     def running(self) -> bool:
@@ -64,6 +66,8 @@ class AutomationEngine:
         # Paper↔live or calendar knobs may change which indexes to watch
         self._indexes_day = None
         self._indexes_cache = []
+        # New token may allow a baseline pull that previously failed
+        self._baselines_pulled = False
         if self.strategy:
             self.strategy.config = self.config
             self.strategy.orders.lots = self.config.lots
@@ -101,6 +105,48 @@ class AutomationEngine:
             },
         }
 
+    def _token_ready(self) -> bool:
+        key = (self.config.api_key or "").strip()
+        tok = (self.config.access_token or "").strip()
+        return bool(key) and not key.upper().startswith("YOUR_") and bool(tok)
+
+    def _pull_baselines_once(self) -> None:
+        """One REST quote at app start: prev-day close for Prices → Last close.
+
+        Never refreshes again the same IST day. LTP is NOT pulled here.
+        """
+        day = get_ist_now().date().isoformat()
+        if self._baselines_day != day:
+            self._baselines_pulled = False
+            self._baselines_day = day
+        if self._baselines_pulled:
+            return
+        snap = self.store.snapshot()
+        if snap.get("baseline_close") and str(snap.get("baselines_pulled_at") or "").startswith(
+            day
+        ):
+            self._baselines_pulled = True
+            return
+        if not self._token_ready():
+            return
+        try:
+            self.config = load_config(self.config.config_path)
+            client = KiteClient(self.config)
+            client.connect()
+            self.client = client
+            keys = [INDEX_META[i]["spot_key"] for i in ("NIFTY", "SENSEX")]
+            quotes = client.quote(keys)
+            for index in ("NIFTY", "SENSEX"):
+                key = INDEX_META[index]["spot_key"]
+                q = quotes.get(key) or {}
+                prev = float((q.get("ohlc") or {}).get("close") or 0)
+                if prev:
+                    self.store.set_baseline(index, prev)
+                    logger.info("Startup baseline %s last_close=%.2f (once)", index, prev)
+            self._baselines_pulled = True
+        except Exception as exc:
+            logger.warning("Startup baseline pull skipped: %s", exc)
+
     def _ensure_strategy(self) -> StrategyEngine:
         if self.strategy is None:
             self.config = load_config(self.config.config_path)
@@ -108,6 +154,9 @@ class AutomationEngine:
             self.client.connect()
             self.strategy = StrategyEngine(self.client, self.config, self.store)
             self.bus.add_handler(self.strategy.on_ticks)
+            # Seed strategy baselines from the one-shot startup pull
+            for index, px in (self.store.snapshot().get("baseline_close") or {}).items():
+                self.strategy._baseline_close[index.upper()] = float(px)
         return self.strategy
 
     def _start_ws(self, indexes: list[str]) -> None:
@@ -123,7 +172,7 @@ class AutomationEngine:
         )
         self.ws.start(tokens)
         self._ws_started = True
-        logger.info("Live WebSocket started for %s", indexes)
+        logger.info("Live WebSocket started for %s (CAS window LTP)", indexes)
 
     def _stop_ws(self) -> None:
         if self.ws:
@@ -141,7 +190,9 @@ class AutomationEngine:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                # Throttle WS heartbeat into state (UI only) — never on every spin.
+                # Always: pull Last close once per day at app start (not LTP)
+                self._pull_baselines_once()
+
                 now_mono = time.monotonic()
                 if now_mono - self._last_ws_status_at >= 0.5:
                     self._last_ws_status_at = now_mono
@@ -150,11 +201,14 @@ class AutomationEngine:
                     )
 
                 if not self.store.is_activated():
+                    # CAS window OFF — no LTP stream
                     if self._ws_started:
                         self._stop_ws()
+                        self.store.clear_ltp()
                     time.sleep(1.0)
                     continue
 
+                # CAS window ON — stream LTP via WebSocket; fire on close flip
                 strategy = self._ensure_strategy()
                 indexes = self._today_indexes(strategy)
                 if not indexes:
@@ -162,20 +216,22 @@ class AutomationEngine:
                     continue
 
                 now = get_ist_now()
-                # Pre-warm + WS connect ahead of the CAS window
-                prewarm_start = _shift(self.config.watch_start, -self.config.prewarm_minutes)
+                prewarm_start = _shift(
+                    self.config.watch_start, -self.config.prewarm_minutes
+                )
                 tnow = time_only(now)
-                if tnow >= prewarm_start:
-                    if not strategy.cache.ready_for:
-                        try:
-                            strategy.capture_baselines()
-                        except Exception as exc:
-                            self.store.set_error(str(exc))
-                    if not self._ws_started:
-                        self._start_ws(indexes)
 
-                # Engine loop only manages connect/prewarm — fire is push-based
-                # on KiteTicker. Stay responsive in-window without burning CPU.
+                # Start LTP WebSocket as soon as CAS window is activated
+                if not self._ws_started:
+                    self._start_ws(indexes)
+
+                # Strike prewarm once near the fire window (uses one quote for spot)
+                if tnow >= prewarm_start and not strategy.cache.ready_for:
+                    try:
+                        strategy.capture_baselines()
+                    except Exception as exc:
+                        self.store.set_error(str(exc))
+
                 if in_window(now, self.config.watch_start, self.config.watch_end):
                     time.sleep(0.01)
                 elif tnow >= prewarm_start:

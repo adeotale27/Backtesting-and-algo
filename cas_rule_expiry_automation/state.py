@@ -38,7 +38,11 @@ class RuntimeState:
     activated_at: Optional[str] = None
     ws_connected: bool = False
     fired_indexes: List[str] = field(default_factory=list)
+    # Prev-day OHLC close — pulled once at app start (UI "Last close")
+    baseline_close: Dict[str, float] = field(default_factory=dict)
+    # CAS fire close (after sell) — not the startup baseline
     last_close: Dict[str, float] = field(default_factory=dict)
+    # Live LTP — only updated while CAS window is active (WebSocket)
     last_ltp: Dict[str, float] = field(default_factory=dict)
     last_error: Optional[str] = None
     last_heartbeat: Optional[str] = None
@@ -46,6 +50,7 @@ class RuntimeState:
     events: List[Dict[str, Any]] = field(default_factory=list)
     timings: List[Dict[str, Any]] = field(default_factory=list)
     ticks_seen: int = 0
+    baselines_pulled_at: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -79,6 +84,9 @@ class StateStore:
                 self._s.fills = []
                 self._s.last_close = {}
                 self._s.timings = []
+                self._s.baseline_close = {}
+                self._s.baselines_pulled_at = None
+                self._s.last_ltp = {}
         except Exception:
             self._s = RuntimeState()
 
@@ -112,6 +120,8 @@ class StateStore:
             if not self._s.activated:
                 return {**self._s.to_dict(), "unchanged": True}
             self._s.activated = False
+            # Stop showing live LTP until CAS window is activated again
+            self._s.last_ltp = {}
             self._event("deactivated", f"CAS window deactivated by {by}")
             self._persist()
             return {**self._s.to_dict(), "unchanged": False}
@@ -131,14 +141,21 @@ class StateStore:
         if self._s.activated and at and not str(at).startswith(today):
             self._s.activated = False
             self._s.activated_at = None
+            self._s.last_ltp = {}
             self._event("auto_deactivated", "new IST day — CAS window reset")
             self._persist()
-        # Also clear stale fills/fires if from a prior day
+        # Stale fills / baselines from a prior day
         if self._s.fills and not str(self._s.fills[0].get("ts", "")).startswith(today):
             self._s.fired_indexes = []
             self._s.fills = []
             self._s.last_close = {}
             self._s.timings = []
+            self._persist()
+        pulled = self._s.baselines_pulled_at or ""
+        if self._s.baseline_close and pulled and not str(pulled).startswith(today):
+            self._s.baseline_close = {}
+            self._s.baselines_pulled_at = None
+            self._s.last_ltp = {}
             self._persist()
 
     def has_fired(self, index: str) -> bool:
@@ -178,8 +195,22 @@ class StateStore:
 
     def set_ltp(self, index: str, ltp: float) -> None:
         # Hot path — memory only; never block WS on disk IO.
+        # Only meaningful while CAS window is active (engine clears on deactivate).
         with self._lock:
+            if not self._s.activated:
+                return
             self._s.last_ltp[index.upper()] = ltp
+
+    def set_baseline(self, index: str, close: float) -> None:
+        """Prev-day OHLC close — set once at startup; not overwritten by fires."""
+        with self._lock:
+            self._s.baseline_close[index.upper()] = float(close)
+            self._s.baselines_pulled_at = get_ist_now().isoformat()
+            self._persist()
+
+    def clear_ltp(self) -> None:
+        with self._lock:
+            self._s.last_ltp = {}
 
     def set_ws(self, connected: bool, ticks: int = 0) -> None:
         # Heartbeat is ephemeral — do NOT persist (was blocking fire path every ~50ms).

@@ -140,6 +140,10 @@
 
     <section class="card">
       <h2>Prices</h2>
+      <p class="hint">
+        <strong>Last close</strong> = prev-day close, pulled once when the app starts.
+        <strong>LTP</strong> streams only while the CAS window is active (WebSocket).
+      </p>
       <div class="kv">
         <div><div class="k">NIFTY LTP</div><div class="v" id="ltp-nifty">—</div></div>
         <div><div class="k">SENSEX LTP</div><div class="v" id="ltp-sensex">—</div></div>
@@ -247,8 +251,10 @@
       $("v-ticks").textContent = tickBits.join(" · ");
       $("ltp-nifty").textContent = (st.last_ltp && st.last_ltp.NIFTY) || "—";
       $("ltp-sensex").textContent = (st.last_ltp && st.last_ltp.SENSEX) || "—";
-      $("close-nifty").textContent = (st.last_close && st.last_close.NIFTY) || "—";
-      $("close-sensex").textContent = (st.last_close && st.last_close.SENSEX) || "—";
+      // Last close = prev-day baseline (once at startup), not CAS fire close
+      const base = st.baseline_close || {};
+      $("close-nifty").textContent = base.NIFTY || "—";
+      $("close-sensex").textContent = base.SENSEX || "—";
       $("events").innerHTML = (st.events || []).slice().reverse().slice(0, 40).map(e =>
         `<div><span class="kind">${e.kind}</span> · ${e.ts} · ${e.message}</div>`
       ).join("") || "<div>No events yet</div>";

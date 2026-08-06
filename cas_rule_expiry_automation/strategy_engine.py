@@ -75,20 +75,33 @@ class StrategyEngine:
         return indexes
 
     def capture_baselines(self) -> None:
+        """Load prev-day close into strategy (for CAS detect). Prefer startup pull.
+
+        Does NOT stream LTP — LTP only arrives via WebSocket while CAS is active.
+        One quote here is only for strike prewarm spot if needed.
+        """
         for index in self.active_indexes:
+            # Reuse once-pulled baseline from store when available
+            snap = self.store.snapshot()
+            cached = (snap.get("baseline_close") or {}).get(index.upper())
+            if cached:
+                self._baseline_close[index] = float(cached)
+
             key = INDEX_META[index]["spot_key"]
             q = self.client.quote([key])[key]
             prev = float(q.get("ohlc", {}).get("close") or 0)
             ltp = float(q.get("last_price") or 0)
-            self._baseline_close[index] = prev
-            self.store.set_ltp(index, ltp)
-            logger.info("[%s] baseline close=%.2f ltp=%.2f", index, prev, ltp)
-            if ltp > 0:
+            if prev:
+                self._baseline_close[index] = prev
+                self.store.set_baseline(index, prev)
+            logger.info("[%s] baseline close=%.2f (spot for prewarm=%.2f)", index, prev, ltp)
+            spot = ltp or prev
+            if spot > 0:
                 try:
                     self.cache.prewarm(
                         self.client.kite,
                         index,
-                        ltp,
+                        spot,
                         self.config.ce_otm_steps,
                         self.config.pe_otm_steps,
                     )
