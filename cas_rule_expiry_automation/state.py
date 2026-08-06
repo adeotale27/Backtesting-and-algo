@@ -1,4 +1,4 @@
-"""Runtime activation / fill state."""
+"""Runtime activation / fill / timing state."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from cas_rule_expiry_automation.config import STATE_PATH
 from cas_rule_expiry_automation.time_utils import get_ist_now
+from cas_rule_expiry_automation.timing import TimingEvent
 
 
 @dataclass
@@ -26,6 +27,8 @@ class Fill:
     trigger: str
     close_price: float
     latency_ms: float = 0.0
+    cas_detected_at: Optional[str] = None
+    order_submitted_at: Optional[str] = None
 
 
 @dataclass
@@ -40,6 +43,7 @@ class RuntimeState:
     last_heartbeat: Optional[str] = None
     fills: List[Dict[str, Any]] = field(default_factory=list)
     events: List[Dict[str, Any]] = field(default_factory=list)
+    timings: List[Dict[str, Any]] = field(default_factory=list)
     ticks_seen: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,16 +63,17 @@ class StateStore:
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-            self._s = RuntimeState(**{
-                k: raw.get(k, getattr(RuntimeState(), k))
-                for k in RuntimeState.__dataclass_fields__
-            })
+            defaults = RuntimeState()
+            kwargs = {}
+            for k in RuntimeState.__dataclass_fields__:
+                kwargs[k] = raw.get(k, getattr(defaults, k))
+            self._s = RuntimeState(**kwargs)
             today = get_ist_now().date().isoformat()
-            # Clear day-scoped fire state across midnight
             if self._s.fills and not str(self._s.fills[0].get("ts", "")).startswith(today):
                 self._s.fired_indexes = []
                 self._s.fills = []
                 self._s.last_close = {}
+                self._s.timings = []
         except Exception:
             self._s = RuntimeState()
 
@@ -106,14 +111,35 @@ class StateStore:
         with self._lock:
             return index.upper() in self._s.fired_indexes
 
-    def mark_fired(self, index: str, close_price: float, fills: List[Fill]) -> None:
+    def mark_fired(
+        self,
+        index: str,
+        close_price: float,
+        fills: List[Fill],
+        timing: Optional[TimingEvent] = None,
+    ) -> None:
         with self._lock:
             idx = index.upper()
             if idx not in self._s.fired_indexes:
                 self._s.fired_indexes.append(idx)
             self._s.last_close[idx] = close_price
             self._s.fills.extend(asdict(f) for f in fills)
-            self._event("fired", f"{idx} close={close_price} legs={len(fills)}")
+            if timing is not None:
+                self._s.timings.append(timing.to_dict())
+                msg = (
+                    f"{idx} CAS@{timing.cas_detected_at} → "
+                    f"CE@{timing.ce_sold_at or '—'} ({timing.detect_to_ce_ms}ms) "
+                    f"PE@{timing.pe_sold_at or '—'} ({timing.detect_to_pe_ms}ms) "
+                    f"total={timing.detect_to_done_ms}ms"
+                )
+            else:
+                msg = f"{idx} close={close_price} legs={len(fills)}"
+            self._event("fired", msg)
+            self._persist()
+
+    def add_timing(self, timing: TimingEvent) -> None:
+        with self._lock:
+            self._s.timings.append(timing.to_dict())
             self._persist()
 
     def set_ltp(self, index: str, ltp: float) -> None:
@@ -138,6 +164,7 @@ class StateStore:
         with self._lock:
             self._s.fired_indexes = []
             self._s.fills = []
+            self._s.timings = []
             self._s.last_close = {}
             self._s.last_error = None
             self._event("reset", "day cleared")

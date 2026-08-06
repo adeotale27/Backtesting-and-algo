@@ -76,7 +76,7 @@ def test_ws_backtest_synthetic(tmp_path):
     )
     assert result.num_trades > 0
     assert result.ws_ticks_total > 0
-    # Only Tue/Thu should appear
+    assert result.timings
     indexes = {t["index"] for t in result.trades}
     assert indexes <= {"NIFTY", "SENSEX"}
     for t in result.trades:
@@ -85,6 +85,23 @@ def test_ws_backtest_synthetic(tmp_path):
             assert d.weekday() == 1
         if t["index"] == "SENSEX":
             assert d.weekday() == 3
+        # Timing stamps present
+        assert t["cas_detected_at"]
+        assert "15:28" in t["cas_detected_at"] or "15:29" in t["cas_detected_at"]
+        assert t["ce_sold_at"]
+        assert t["pe_sold_at"]
+        assert t["detect_to_done_ms"] >= 0
+
+
+def test_timing_ms_between():
+    from cas_rule_expiry_automation.timing import ms_between, new_detect_event
+
+    a = "2026-08-06T15:28:41.100+05:30"
+    b = "2026-08-06T15:28:41.250+05:30"
+    assert abs(ms_between(a, b) - 150) < 0.01
+    ev = new_detect_event("NIFTY", 24850, "ws_ohlc_close", detected_at=a)
+    assert ev.cas_detected_at == a
+    assert ev.index == "NIFTY"
 
 
 def test_configurable_lots_in_config(tmp_path):

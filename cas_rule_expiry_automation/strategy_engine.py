@@ -1,9 +1,4 @@
-"""WebSocket-driven CAS fire strategy.
-
-Subscribes to index ticks. On CAS close publication (ohlc.close flip) — or
-optionally on LTP inside the fire window — resolves OTM CE/PE from the
-pre-warm cache and market-sells immediately.
-"""
+"""WebSocket-driven CAS fire strategy with detect→sell timing."""
 
 from __future__ import annotations
 
@@ -19,6 +14,7 @@ from cas_rule_expiry_automation.order_engine import OrderEngine
 from cas_rule_expiry_automation.state import StateStore
 from cas_rule_expiry_automation.strike_resolver import StrikeCache
 from cas_rule_expiry_automation.time_utils import get_ist_now, in_window
+from cas_rule_expiry_automation.timing import new_detect_event
 
 logger = logging.getLogger(__name__)
 
@@ -108,31 +104,40 @@ class StrategyEngine:
                 and ohlc_close
                 and abs(ohlc_close - baseline) > 1e-6
             ):
-                # Official close flipped on the wire — fire immediately
-                # (even slightly before watch window if Zerodha updates early)
                 trigger = "ws_ohlc_close"
                 close_px = ohlc_close
-            elif (
-                self.config.fire_on_ltp_in_window
-                and in_cas
-                and ltp > 0
-            ):
+            elif self.config.fire_on_ltp_in_window and in_cas and ltp > 0:
                 trigger = "ws_ltp_window"
                 close_px = ltp
             elif tick.get("cas_close") and ltp > 0:
-                # Backtest replay marker
                 trigger = "ws_replay_cas"
                 close_px = float((tick.get("ohlc") or {}).get("close") or ltp)
 
             if trigger and close_px:
-                self._fire(index, close_px, trigger)
+                # Stamp the exact moment CAS value appeared on the socket
+                self._fire(index, close_px, trigger, source="live")
 
-    def _fire(self, index: str, close_price: float, trigger: str) -> None:
+    def _fire(
+        self,
+        index: str,
+        close_price: float,
+        trigger: str,
+        source: str = "live",
+    ) -> list:
         with self._lock:
             if index in self._firing or self.store.has_fired(index):
-                return
+                return []
             self._firing.add(index)
+
+        timing = new_detect_event(index, close_price, trigger, source=source)
         t0 = time.perf_counter()
+        logger.info(
+            "CAS DETECTED %s close=%.2f at %s trigger=%s",
+            index,
+            close_price,
+            timing.cas_detected_at,
+            trigger,
+        )
         try:
             legs = self.cache.resolve(
                 self.client.kite,
@@ -141,30 +146,24 @@ class StrategyEngine:
                 self.config.ce_otm_steps,
                 self.config.pe_otm_steps,
             )
-            fills = self.orders.sell_otm(legs, close_price, trigger, t0)
-            self.store.mark_fired(index, close_price, fills)
-            logger.info(
-                "FIRE complete %s close=%.2f trigger=%s total=%.1fms",
-                index,
-                close_price,
-                trigger,
-                (time.perf_counter() - t0) * 1000,
+            fills, timing = self.orders.sell_otm(
+                legs, close_price, trigger, t0, timing=timing
             )
+            self.store.mark_fired(index, close_price, fills, timing=timing)
+            logger.info(
+                "FIRE done %s detect→done=%sms CE=%sms PE=%sms",
+                index,
+                timing.detect_to_done_ms if timing else "?",
+                timing.detect_to_ce_ms if timing else "?",
+                timing.detect_to_pe_ms if timing else "?",
+            )
+            return fills
         except Exception as exc:
             logger.exception("Fire failed for %s", index)
             self.store.set_error(f"{index}: {exc}")
             with self._lock:
                 self._firing.discard(index)
+            return []
 
     def manual_fire(self, index: str, close_price: float) -> list:
-        t0 = time.perf_counter()
-        legs = self.cache.resolve(
-            self.client.kite,
-            index,
-            close_price,
-            self.config.ce_otm_steps,
-            self.config.pe_otm_steps,
-        )
-        fills = self.orders.sell_otm(legs, close_price, "manual", t0)
-        self.store.mark_fired(index, close_price, fills)
-        return fills
+        return self._fire(index, close_price, "manual", source="manual")

@@ -60,7 +60,22 @@ prewarm_minutes = 12
 
 All of `lots` / OTM steps / product are also editable in the UI.
 
+## Timing board (live + backtest)
+
+Every fire persists and shows:
+
+| Field | Meaning |
+|-------|---------|
+| `cas_detected_at` | Exact IST timestamp when CAS close appeared (~15:28–15:30) |
+| `ce_sold_at` | When ATM+N Call market sell was submitted |
+| `pe_sold_at` | When ATM−N Put market sell was submitted |
+| `detect_to_ce_ms` / `detect_to_pe_ms` | Milliseconds from detect → each leg |
+| `detect_to_done_ms` | Total detect → both legs done |
+
+UI panel: **CAS → Sell latency timeline**. Backtest table includes the same columns.
+
 ## Latency design
+
 
 1. **KiteTicker WebSocket** (not REST polling) for index updates  
 2. **MODE_FULL** so `ohlc.close` arrives on the wire  

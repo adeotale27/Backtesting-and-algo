@@ -113,6 +113,25 @@
       </div>
     </section>
 
+    <section class="card wide">
+      <h2>CAS → Sell latency timeline</h2>
+      <p class="hint">
+        When the CAS close prints (≈15:28–15:30), we stamp <strong>cas_detected_at</strong>.
+        Then each market sell gets <strong>ce_sold_at</strong> / <strong>pe_sold_at</strong>
+        and the detect→sell milliseconds. Saved for live and backtest.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Index</th><th>Close</th><th>CAS detected</th>
+            <th>CE sold</th><th>PE sold</th>
+            <th>→CE ms</th><th>→PE ms</th><th>Total ms</th><th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="timings"></tbody>
+      </table>
+    </section>
+
     <section class="card">
       <h2>Event log</h2>
       <div class="timeline" id="events"></div>
@@ -145,7 +164,8 @@
           <thead>
             <tr>
               <th>Date</th><th>Index</th><th>Close</th><th>ATM</th>
-              <th>CE</th><th>PE</th><th>Trigger</th><th>Ticks</th><th>P&amp;L</th>
+              <th>CAS detected</th><th>CE sold</th><th>PE sold</th>
+              <th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
             </tr>
           </thead>
           <tbody id="bt-rows"></tbody>
@@ -189,9 +209,21 @@
       $("events").innerHTML = (st.events || []).slice().reverse().slice(0, 40).map(e =>
         `<div><span class="kind">${e.kind}</span> · ${e.ts} · ${e.message}</div>`
       ).join("") || "<div>No events</div>";
+      $("timings").innerHTML = (st.timings || []).slice().reverse().map(t =>
+        `<tr>
+          <td>${t.index}</td><td>${t.close_price}</td>
+          <td>${(t.cas_detected_at||"").replace("T"," ").slice(0,23)}</td>
+          <td>${(t.ce_sold_at||"—").replace("T"," ").slice(0,23)}</td>
+          <td>${(t.pe_sold_at||"—").replace("T"," ").slice(0,23)}</td>
+          <td>${t.detect_to_ce_ms ?? "—"}</td>
+          <td>${t.detect_to_pe_ms ?? "—"}</td>
+          <td><strong>${t.detect_to_done_ms ?? "—"}</strong></td>
+          <td>${t.source||""}</td>
+        </tr>`
+      ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No CAS detections yet — activate on expiry day</td></tr>`;
       $("fills").innerHTML = (st.fills || []).map(f =>
         `<tr>
-          <td>${(f.ts||"").slice(11,19)}</td><td>${f.index}</td><td>${f.opt_type}</td>
+          <td>${(f.ts||"").slice(11,23)}</td><td>${f.index}</td><td>${f.opt_type}</td>
           <td>${f.tradingsymbol}</td><td>${f.strike}</td><td>${f.quantity}</td>
           <td>${f.order_id}</td><td>${(f.latency_ms||0).toFixed(1)}ms</td><td>${f.trigger}</td>
         </tr>`
@@ -281,16 +313,18 @@
           ["Win rate", r.win_rate_pct.toFixed(1)+"%"],
           ["Max DD", r.max_drawdown_pct.toFixed(2)+"%"],
           ["WS ticks", r.ws_ticks_total],
+          ["Avg detect→done", (r.avg_detect_to_done_ms||0).toFixed(2)+" ms"],
           ["Final", "₹"+r.final_capital.toLocaleString("en-IN")],
-          ["Strategy", "WS OTM"],
         ].map(([k,v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
         $("bt-rows").innerHTML = (r.trades||[]).map(t =>
           `<tr>
             <td>${t.entry_date}</td><td>${t.index}</td><td>${t.close_price}</td><td>${t.atm}</td>
-            <td>${t.ce_strike}</td><td>${t.pe_strike}</td><td>${t.trigger}</td>
-            <td>${t.ticks_replayed}</td><td>${t.pnl}</td>
+            <td>${(t.cas_detected_at||"").replace("T"," ").slice(11,23)}</td>
+            <td>${(t.ce_sold_at||"").replace("T"," ").slice(11,23)}</td>
+            <td>${(t.pe_sold_at||"").replace("T"," ").slice(11,23)}</td>
+            <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td><td>${t.pnl}</td>
           </tr>`
-        ).join("") || "<tr><td colspan=9>No expiry days</td></tr>";
+        ).join("") || "<tr><td colspan=10>No expiry days</td></tr>";
         msg("Backtest complete","ok");
       } catch(e){ msg(e.message,"err"); }
     }
