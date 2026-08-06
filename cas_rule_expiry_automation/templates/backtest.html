@@ -30,8 +30,8 @@
       <div class="bt-hero-copy">
         <h1>Backtest</h1>
         <p>
-          Replay expiry days with the same strike logic and MARKET-sell path as Live.
-          Lots set here do not change Live trade size.
+          Historical replay using the same strike logic and MARKET-sell path as Live.
+          Defaults to today. Lots here do not change Live trade size.
         </p>
       </div>
     </section>
@@ -166,11 +166,10 @@
       }
     }
     (function initDates() {
-      const end = new Date();
-      const start = new Date();
-      start.setMonth(start.getMonth() - 3);
-      $("bt_end").value = end.toISOString().slice(0, 10);
-      $("bt_start").value = start.toISOString().slice(0, 10);
+      // Always default both fields to today in local calendar date (IST-friendly).
+      const today = {{ day.date | tojson }};
+      $("bt_start").value = today;
+      $("bt_end").value = today;
     })();
   </script>
 </body>

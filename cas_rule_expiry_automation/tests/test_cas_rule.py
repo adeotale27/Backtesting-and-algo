@@ -303,6 +303,24 @@ def test_watch_start_migrates_1528_to_1527(tmp_path):
     assert "15:28:00" not in text
 
 
+def test_backtest_page_defaults_to_today(tmp_path):
+    from cas_rule_expiry_automation.config import ensure_config
+    from cas_rule_expiry_automation.app import app
+    from cas_rule_expiry_automation.time_utils import get_ist_now
+
+    ensure_config()
+    today = get_ist_now().date().isoformat()
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s["ok"] = True
+        s["user"] = "admin"
+    bt = c.get("/backtest")
+    assert bt.status_code == 200
+    assert today.encode() in bt.data
+    assert b"setMonth" not in bt.data
+    assert b"WebSocket backtest" not in bt.data
+
+
 def test_activate_deactivate_idempotent(tmp_path):
     from cas_rule_expiry_automation.state import StateStore
 
