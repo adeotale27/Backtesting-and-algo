@@ -283,7 +283,7 @@ def test_parallel_market_sell_both_legs(tmp_path):
 
 
 def test_kite_place_market_sell_never_limit():
-    """Zerodha place_order must be ORDER_TYPE_MARKET with price=0 (not LIMIT)."""
+    """Kite MARKET sell: no price/trigger_price; market_protection=-1 required."""
     from cas_rule_expiry_automation.kite_client import KiteClient
     from types import SimpleNamespace
 
@@ -295,6 +295,7 @@ def test_kite_place_market_sell_never_limit():
         ORDER_TYPE_MARKET = "MARKET"
         ORDER_TYPE_LIMIT = "LIMIT"
         VALIDITY_DAY = "DAY"
+        MARKET_PROTECTION_AUTO = -1
 
         def place_order(self, **kwargs):
             captured.update(kwargs)
@@ -313,10 +314,13 @@ def test_kite_place_market_sell_never_limit():
     assert oid == "OID-1"
     assert captured["order_type"] == "MARKET"
     assert captured["order_type"] != "LIMIT"
-    assert captured["price"] == 0
-    assert captured["trigger_price"] == 0
     assert captured["transaction_type"] == "SELL"
     assert captured["quantity"] == 20
+    # price / trigger_price must be omitted — SDK strips None; 0 would be sent
+    assert "price" not in captured
+    assert "trigger_price" not in captured
+    # Zerodha rejects unprotected MARKET (protection=0); AUTO=-1 is required
+    assert captured["market_protection"] == -1
 
 
 def test_ws_heartbeat_does_not_persist(tmp_path):

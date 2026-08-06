@@ -93,7 +93,16 @@ class KiteClient:
         tag: str = "CASRULE",
         live: bool = False,
     ) -> Any:
-        """Punch a MARKET SELL immediately (no limit price, no quote round-trip)."""
+        """Punch a MARKET SELL per Kite Connect v3 rules.
+
+        Official place_order for MARKET:
+          - order_type=MARKET
+          - do NOT send price (LIMIT-only) or trigger_price (SL/SL-M only)
+          - market_protection is required (-1 = auto); protection=0 is rejected
+
+        Matches common_lib.place_order_market / cas_expiry kite_session.
+        SDK strips None kwargs before POST.
+        """
         if not self.kite:
             self.connect()
         if not live:
@@ -106,8 +115,18 @@ class KiteClient:
             )
             return f"DRY-{tradingsymbol}-{int(time.time()*1000)%100000}"
 
-        # Explicit MARKET params — never LIMIT / SL / price.
-        params = dict(
+        # Never pass price=0 / trigger_price=0 — those are LIMIT/SL fields and
+        # the pykiteconnect client omits only None (0 would be sent to Kite).
+        protection = getattr(self.kite, "MARKET_PROTECTION_AUTO", -1)
+        logger.info(
+            "Kite place_order MARKET SELL %s/%s x%d product=%s protection=%s",
+            exchange,
+            tradingsymbol,
+            quantity,
+            product,
+            protection,
+        )
+        return self.kite.place_order(
             variety=self.kite.VARIETY_REGULAR,
             exchange=exchange,
             tradingsymbol=tradingsymbol,
@@ -115,23 +134,10 @@ class KiteClient:
             quantity=int(quantity),
             product=product,
             order_type=self.kite.ORDER_TYPE_MARKET,
-            validity=self.kite.VALIDITY_DAY,
-            price=0,
-            trigger_price=0,
             tag=(tag or "CASRULE")[:20],
+            market_protection=protection,
+            # price / trigger_price intentionally omitted (None → stripped by SDK)
         )
-        # BFO/NFO market protection when SDK supports it
-        mp = getattr(self.kite, "MARKET_PROTECTION_AUTO", None)
-        if mp is not None:
-            params["market_protection"] = mp
-        logger.info(
-            "Kite place_order MARKET SELL %s/%s x%d product=%s",
-            exchange,
-            tradingsymbol,
-            quantity,
-            product,
-        )
-        return self.kite.place_order(**params)
 
     @staticmethod
     def _parent_token() -> Optional[str]:
