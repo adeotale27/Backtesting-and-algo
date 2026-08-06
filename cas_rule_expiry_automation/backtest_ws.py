@@ -36,9 +36,14 @@ class BacktestTrade:
     pe_strike: int
     ce_premium: float
     pe_premium: float
+    ce_settlement: float
+    pe_settlement: float
+    lot_size: int
+    quantity: int
     pnl: float
     ticks_replayed: int
     trigger: str
+    data_source: str = "synthetic"
     cas_detected_at: str = ""
     ce_sold_at: str = ""
     pe_sold_at: str = ""
@@ -93,24 +98,97 @@ def intrinsic(spot, strike, opt_type) -> float:
     return max(0.0, (spot - strike) if opt_type == "CE" else (strike - spot))
 
 
-def _synthetic_day_candles(index: str, d: date, seed: int = 0) -> List[dict]:
+def cas_entry_premium(
+    spot: float,
+    strike: float,
+    opt_type: str,
+    strike_gap: int,
+    iv: float,
+    entry_minutes: float,
+    otm_floor: float,
+) -> float:
+    """Premium at CAS detect for ATM±N legs.
+
+    Live observation: near-ATM OTM on expiry still trades ~₹100 just as CAS
+    prints, then collapses. Pure BS with T=5min underprices that badly.
+    Model = max(BS(elevated T/IV), floor decayed by OTM distance).
+    """
+    if opt_type == "CE":
+        otm_pts = max(0.0, strike - spot)
+    else:
+        otm_pts = max(0.0, spot - strike)
+
+    t_days = max(entry_minutes, 1.0) / (60.0 * 24.0)
+    bs = bs_price(spot, strike, iv, t_days, opt_type)
+
+    # Floor: full assumed premium for ~ATM±1 (within 1.5 strike gaps), then decay
+    steps = otm_pts / max(strike_gap, 1)
+    if steps <= 1.5:
+        floor = float(otm_floor)
+    else:
+        floor = float(otm_floor) * math.exp(-(steps - 1.5) * 0.9)
+    # ITM legs: at least intrinsic + small time value
+    intr = intrinsic(spot, strike, opt_type)
+    if intr > 0:
+        return max(bs, intr + max(floor * 0.25, 5.0))
+    return max(bs, floor)
+
+
+def _synthetic_day_candles(
+    index: str, d: date, seed: int = 0, anchor_close: Optional[float] = None
+) -> List[dict]:
     import random
 
     rng = random.Random(seed + d.toordinal() + hash(index) % 997)
-    level = 24500.0 if index == "NIFTY" else 81000.0
-    level *= 1 + rng.uniform(-0.02, 0.02)
+    # Realistic anchors (Aug-2026 ballpark). Prefer explicit anchor_close when known.
+    level = anchor_close or (24500.0 if index == "NIFTY" else 79000.0)
+    # Build an hour of noise ending near ``level``
+    px = level * (1 + rng.uniform(-0.004, 0.004))
     candles = []
-    px = level
     for m in range(60):
         o = px
-        move = rng.uniform(-0.0015, 0.0015)
-        c = o * (1 + move)
-        h = max(o, c) * (1 + abs(rng.uniform(0, 0.0004)))
-        low = min(o, c) * (1 - abs(rng.uniform(0, 0.0004)))
+        # Pull toward target close as we approach the end
+        target = level
+        pull = (target - o) * (0.02 + 0.06 * (m / 59.0))
+        move = pull + o * rng.uniform(-0.0008, 0.0008)
+        c = o + move
+        h = max(o, c) * (1 + abs(rng.uniform(0, 0.0003)))
+        low = min(o, c) * (1 - abs(rng.uniform(0, 0.0003)))
         ts = datetime(d.year, d.month, d.day, 14, 30, tzinfo=IST) + timedelta(minutes=m)
         candles.append({"date": ts, "open": o, "high": h, "low": low, "close": c, "volume": 0})
         px = c
+    # Force last close to anchor so ATM matches the real CAS close when provided
+    if candles and anchor_close:
+        candles[-1]["close"] = float(anchor_close)
+        candles[-1]["high"] = max(candles[-1]["high"], float(anchor_close))
+        candles[-1]["low"] = min(candles[-1]["low"], float(anchor_close))
     return candles
+
+
+def _fetch_day_close(kite: Any, index: str, d: date) -> Optional[float]:
+    """Official/day close from Kite daily candle (best CAS proxy available)."""
+    meta = INDEX_META[index]
+    try:
+        from_dt = datetime.combine(d, datetime.min.time())
+        to_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=23)
+        rows = kite.historical_data(int(meta["token"]), from_dt, to_dt, "day")
+        if not rows:
+            return None
+        return float(rows[-1]["close"])
+    except Exception as exc:
+        logger.warning("daily close fetch failed %s %s: %s", index, d, exc)
+        return None
+
+
+def _fetch_minute_candles(kite: Any, index: str, d: date) -> List[dict]:
+    meta = INDEX_META[index]
+    try:
+        from_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=14, minutes=30)
+        to_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=15, minutes=35)
+        return list(kite.historical_data(int(meta["token"]), from_dt, to_dt, "minute") or [])
+    except Exception as exc:
+        logger.warning("minute fetch failed %s %s: %s", index, d, exc)
+        return []
 
 
 def _cas_window_stamp(d: date, rng_seed: int = 0) -> datetime:
@@ -212,6 +290,11 @@ def run_ws_backtest(
         "cas_detected_at is stamped in the 15:28–15:30 IST CAS window.",
         "ce_sold_at / pe_sold_at measure detect→sell path latency on the replay bus.",
         f"OTM steps CE=+{cfg.ce_otm_steps} PE=-{cfg.pe_otm_steps}, lots={cfg.lots}.",
+        (
+            f"Entry premium = max(BS(IV={cfg.assumed_iv}%, T={cfg.entry_time_minutes}m), "
+            f"CAS OTM floor ₹{cfg.assumed_cas_otm_premium}); settlement = intrinsic."
+        ),
+        "If data_source=synthetic, close is NOT the exchange CAS print — connect Kite for real closes.",
     ]
 
     equity = capital
@@ -232,25 +315,44 @@ def run_ws_backtest(
             lot = int(meta["default_lot"])
             qty = cfg.lots * lot
 
+            data_source = "synthetic"
+            day_close: Optional[float] = None
             candles: List[dict] = []
             if kite is not None:
-                try:
-                    from_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=14, minutes=30)
-                    to_dt = datetime.combine(d, datetime.min.time()) + timedelta(hours=15, minutes=30)
-                    candles = kite.historical_data(token, from_dt, to_dt, "minute")
-                except Exception as exc:
-                    notes.append(f"{d} {index}: historical failed ({exc})")
-                    candles = []
-            if not candles:
-                candles = _synthetic_day_candles(index, d)
+                day_close = _fetch_day_close(kite, index, d)
+                candles = _fetch_minute_candles(kite, index, d)
+                if candles:
+                    data_source = "kite_minute"
+                elif day_close is not None:
+                    data_source = "kite_daily"
+                    candles = _synthetic_day_candles(index, d, anchor_close=day_close)
 
-            # Attach CAS print timestamp onto the final close tick
+            if not candles:
+                # No Kite session → synthetic path (will NOT match real Sensex/Nifty)
+                candles = _synthetic_day_candles(index, d)
+                data_source = "synthetic"
+                notes.append(
+                    f"{d} {index}: using SYNTHETIC close (no Kite historical). "
+                    "Connect access_token for real CAS close."
+                )
+
+            # Prefer official day close as CAS equilibrium when available
+            cas_close_override = day_close
+
             cas_ts = _cas_window_stamp(d, hash(index) % 1000)
             baseline = float(candles[0]["open"])
             ticks = candle_to_ticks(token, candles, ticks_per_candle=4)
             if ticks:
+                if cas_close_override is not None:
+                    # Force final CAS tick to the real day close
+                    ticks[-1]["last_price"] = float(cas_close_override)
+                    ticks[-1]["ohlc"] = {
+                        **(ticks[-1].get("ohlc") or {}),
+                        "close": float(cas_close_override),
+                    }
                 ticks[-1]["cas_ts"] = cas_ts
                 ticks[-1]["timestamp"] = cas_ts
+                ticks[-1]["cas_close"] = True
 
             bus = TickBus()
             probe = _TimedFireProbe(index, token, baseline, d)
@@ -259,12 +361,20 @@ def run_ws_backtest(
             ws_ticks_total += n
 
             if probe.fired_close is None:
-                close_px = float(candles[-1]["close"])
+                close_px = float(
+                    cas_close_override
+                    if cas_close_override is not None
+                    else candles[-1]["close"]
+                )
                 trigger = "fallback_close"
                 detect_iso = cas_ts.isoformat(timespec="milliseconds")
                 detect_perf = time.perf_counter()
             else:
-                close_px = probe.fired_close
+                close_px = (
+                    float(cas_close_override)
+                    if cas_close_override is not None
+                    else float(probe.fired_close)
+                )
                 trigger = probe.trigger or "ws"
                 detect_iso = probe.cas_detected_at or cas_ts.isoformat(timespec="milliseconds")
                 detect_perf = probe._detect_perf or time.perf_counter()
@@ -279,9 +389,24 @@ def run_ws_backtest(
             if timing.detect_to_done_ms is not None:
                 done_ms_list.append(float(timing.detect_to_done_ms))
 
-            t_days = 5.0 / (60 * 24)
-            ce_p = bs_price(close_px, ce_k, cfg.assumed_iv, t_days, "CE")
-            pe_p = bs_price(close_px, pe_k, cfg.assumed_iv, t_days, "PE")
+            ce_p = cas_entry_premium(
+                close_px,
+                ce_k,
+                "CE",
+                gap,
+                cfg.assumed_iv,
+                cfg.entry_time_minutes,
+                cfg.assumed_cas_otm_premium,
+            )
+            pe_p = cas_entry_premium(
+                close_px,
+                pe_k,
+                "PE",
+                gap,
+                cfg.assumed_iv,
+                cfg.entry_time_minutes,
+                cfg.assumed_cas_otm_premium,
+            )
             ce_s = intrinsic(close_px, ce_k, "CE")
             pe_s = intrinsic(close_px, pe_k, "PE")
             pnl = ((ce_p - ce_s) + (pe_p - pe_s)) * qty
@@ -300,16 +425,25 @@ def run_ws_backtest(
                     pe_strike=pe_k,
                     ce_premium=round(ce_p, 2),
                     pe_premium=round(pe_p, 2),
+                    ce_settlement=round(ce_s, 2),
+                    pe_settlement=round(pe_s, 2),
+                    lot_size=lot,
+                    quantity=qty,
                     pnl=round(pnl, 2),
                     ticks_replayed=n,
                     trigger=trigger,
+                    data_source=data_source,
                     cas_detected_at=timing.cas_detected_at,
                     ce_sold_at=timing.ce_sold_at or "",
                     pe_sold_at=timing.pe_sold_at or "",
                     detect_to_ce_ms=float(timing.detect_to_ce_ms or 0),
                     detect_to_pe_ms=float(timing.detect_to_pe_ms or 0),
                     detect_to_done_ms=float(timing.detect_to_done_ms or 0),
-                    note=f"WS replay · {probe.ticks} ticks · CAS window stamp",
+                    note=(
+                        f"SELL CE {ce_k} @₹{ce_p:.2f} → settle ₹{ce_s:.2f}; "
+                        f"SELL PE {pe_k} @₹{pe_p:.2f} → settle ₹{pe_s:.2f}; "
+                        f"qty={qty} ({cfg.lots}×{lot}); source={data_source}"
+                    ),
                 )
             )
             curve.append({"date": d.isoformat(), "equity": round(equity, 2), "index": index})

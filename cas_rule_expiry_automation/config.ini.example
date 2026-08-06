@@ -48,6 +48,11 @@ port = 5030
 
 [backtest]
 default_capital = 500000
-assumed_iv = 18.0
+# Expiry-afternoon IV (%) used in BS; raised vs calm IV because expiry is jumpy
+assumed_iv = 35.0
+# Floor premium (₹) for near-ATM OTM at CAS print (your live observation ~100)
+assumed_cas_otm_premium = 100.0
+# Minutes of time value left when we sell at CAS detect
+entry_time_minutes = 15.0
 # Simulated WebSocket tick interval when replaying candles (ms)
 tick_interval_ms = 100

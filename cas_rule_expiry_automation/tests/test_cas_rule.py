@@ -91,6 +91,20 @@ def test_ws_backtest_synthetic(tmp_path):
         assert t["ce_sold_at"]
         assert t["pe_sold_at"]
         assert t["detect_to_done_ms"] >= 0
+        assert t["ce_strike"] > t["atm"] or t["ce_strike"] == t["atm"]
+        assert t["pe_strike"] < t["atm"] or t["pe_strike"] == t["atm"]
+        assert t["ce_premium"] >= 1
+        assert t["data_source"] == "synthetic"
+
+
+def test_cas_premium_floor_near_atm():
+    from cas_rule_expiry_automation.backtest_ws import cas_entry_premium
+
+    # Sensex ~78955, ATM 79000, CE 79100 / PE 78900 with floor 100
+    ce = cas_entry_premium(78954.76, 79100, "CE", 100, 35.0, 15.0, 100.0)
+    pe = cas_entry_premium(78954.76, 78900, "PE", 100, 35.0, 15.0, 100.0)
+    assert ce >= 50
+    assert pe >= 50
 
 
 def test_timing_ms_between():

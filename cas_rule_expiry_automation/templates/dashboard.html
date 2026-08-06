@@ -149,7 +149,11 @@
 
     <section class="card wide">
       <h2>WebSocket backtest</h2>
-      <p class="hint">Replays tick streams through the same TickBus → on_ticks fire path used live. Tue=NIFTY, Thu=SENSEX.</p>
+      <p class="hint">
+        Replays ticks through the same TickBus → on_ticks path. Tue=NIFTY, Thu=SENSEX.
+        Shows <strong>CE/PE strikes sold</strong>, premiums, and CAS→sell timestamps.
+        If <code>data_source=synthetic</code>, close is NOT the real exchange close — save a Kite access_token first.
+      </p>
       <div class="row-4">
         <div><label>Start</label><input id="bt_start" type="date" /></div>
         <div><label>End</label><input id="bt_end" type="date" /></div>
@@ -159,13 +163,17 @@
         </div>
       </div>
       <div class="kpis" id="bt-kpis"></div>
-      <div style="overflow:auto;max-height:300px">
+      <div id="bt-notes" class="hint"></div>
+      <div style="overflow:auto;max-height:360px">
         <table>
           <thead>
             <tr>
               <th>Date</th><th>Index</th><th>Close</th><th>ATM</th>
-              <th>CAS detected</th><th>CE sold</th><th>PE sold</th>
-              <th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
+              <th>CE strike</th><th>PE strike</th>
+              <th>CE prem</th><th>PE prem</th>
+              <th>CE settle</th><th>PE settle</th>
+              <th>Qty</th><th>Source</th>
+              <th>CAS detected</th><th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
             </tr>
           </thead>
           <tbody id="bt-rows"></tbody>
@@ -316,15 +324,18 @@
           ["Avg detect→done", (r.avg_detect_to_done_ms||0).toFixed(2)+" ms"],
           ["Final", "₹"+r.final_capital.toLocaleString("en-IN")],
         ].map(([k,v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+        $("bt-notes").textContent = (r.notes || []).slice(0, 4).join(" · ");
         $("bt-rows").innerHTML = (r.trades||[]).map(t =>
           `<tr>
             <td>${t.entry_date}</td><td>${t.index}</td><td>${t.close_price}</td><td>${t.atm}</td>
+            <td><strong>${t.ce_strike}</strong></td><td><strong>${t.pe_strike}</strong></td>
+            <td>${t.ce_premium}</td><td>${t.pe_premium}</td>
+            <td>${t.ce_settlement}</td><td>${t.pe_settlement}</td>
+            <td>${t.quantity}</td><td>${t.data_source||""}</td>
             <td>${(t.cas_detected_at||"").replace("T"," ").slice(11,23)}</td>
-            <td>${(t.ce_sold_at||"").replace("T"," ").slice(11,23)}</td>
-            <td>${(t.pe_sold_at||"").replace("T"," ").slice(11,23)}</td>
             <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td><td>${t.pnl}</td>
           </tr>`
-        ).join("") || "<tr><td colspan=10>No expiry days</td></tr>";
+        ).join("") || "<tr><td colspan=16>No expiry days</td></tr>";
         msg("Backtest complete","ok");
       } catch(e){ msg(e.message,"err"); }
     }

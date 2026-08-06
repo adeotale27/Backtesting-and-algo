@@ -54,7 +54,11 @@ class AppConfig:
     port: int = 5030
 
     default_capital: float = 500_000.0
-    assumed_iv: float = 18.0
+    assumed_iv: float = 35.0
+    # Floor premium (₹) for near-ATM OTM legs at CAS print — matches live ~₹100 observation
+    assumed_cas_otm_premium: float = 100.0
+    # Minutes of time-value assumed remaining when CAS close prints
+    entry_time_minutes: float = 15.0
     tick_interval_ms: int = 100
 
     config_path: str = DEFAULT_CONFIG_PATH
@@ -108,7 +112,13 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         host=p.get("server", "host", fallback="127.0.0.1").strip(),
         port=p.getint("server", "port", fallback=5030),
         default_capital=p.getfloat("backtest", "default_capital", fallback=500_000),
-        assumed_iv=p.getfloat("backtest", "assumed_iv", fallback=18.0),
+        assumed_iv=p.getfloat("backtest", "assumed_iv", fallback=35.0),
+        assumed_cas_otm_premium=p.getfloat(
+            "backtest", "assumed_cas_otm_premium", fallback=100.0
+        ),
+        entry_time_minutes=p.getfloat(
+            "backtest", "entry_time_minutes", fallback=15.0
+        ),
         tick_interval_ms=p.getint("backtest", "tick_interval_ms", fallback=100),
         config_path=cfg_path,
     )
