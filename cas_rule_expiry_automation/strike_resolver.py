@@ -30,10 +30,38 @@ def round_atm(spot: float, gap: int) -> int:
 
 
 def otm_strikes(
-    close_price: float, gap: int, ce_steps: int, pe_steps: int
+    close_price: float, gap: int, ce_steps: int = 1, pe_steps: int = 1
 ) -> Tuple[int, int, int]:
+    """Pick CE/PE strikes to sell at CAS close.
+
+    Rule (expiry premium collapse):
+      • Spot **below** ATM → ATM CE is OTM and goes to ~0 → sell **ATM CE**
+        (not ATM+1). PE stays ``ATM − pe_steps``.
+      • Spot **above** ATM → ATM PE is OTM and goes to ~0 → sell **ATM PE**
+        (not ATM−1). CE stays ``ATM + ce_steps``.
+      • Spot **exactly** ATM → classic wings: CE=ATM+ce_steps, PE=ATM−pe_steps.
+
+    With default steps=1:
+      spot 78954.76 → ATM 79000 → CE 79000, PE 78900
+      spot 79022    → ATM 79000 → CE 79100, PE 79000
+    """
     atm = round_atm(close_price, gap)
-    return atm, atm + ce_steps * gap, atm - pe_steps * gap
+    ce_steps = max(int(ce_steps), 0)
+    pe_steps = max(int(pe_steps), 0)
+
+    if close_price < atm:
+        # Prefer ATM CE (OTM). Extra ce_steps>1 still step further OTM from ATM.
+        ce_strike = atm + max(ce_steps - 1, 0) * gap
+        pe_strike = atm - pe_steps * gap
+    elif close_price > atm:
+        # Prefer ATM PE (OTM). Extra pe_steps>1 still step further OTM from ATM.
+        pe_strike = atm - max(pe_steps - 1, 0) * gap
+        ce_strike = atm + ce_steps * gap
+    else:
+        ce_strike = atm + ce_steps * gap
+        pe_strike = atm - pe_steps * gap
+
+    return atm, int(ce_strike), int(pe_strike)
 
 
 def _db_path() -> str:
@@ -99,7 +127,14 @@ class StrikeCache:
         self.prefix[index] = prefix
 
         strikes = {atm + i * gap for i in range(-radius, radius + 1)}
-        strikes |= {atm + ce_steps * gap, atm - pe_steps * gap}
+        # Cover both classic wings and ATM-biased OTM (spot below/above ATM).
+        strikes |= {
+            atm,
+            atm + ce_steps * gap,
+            atm - pe_steps * gap,
+            atm + max(ce_steps - 1, 0) * gap,
+            atm - max(pe_steps - 1, 0) * gap,
+        }
         n = 0
         for strike in strikes:
             for opt in ("CE", "PE"):

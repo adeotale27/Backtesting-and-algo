@@ -39,6 +39,7 @@ class BacktestTrade:
     ce_settlement: float
     pe_settlement: float
     lot_size: int
+    lots: int
     quantity: int
     pnl: float
     ticks_replayed: int
@@ -409,6 +410,7 @@ def run_ws_backtest(
     end: Optional[date] = None,
     capital: Optional[float] = None,
     close_overrides: Optional[Dict[str, float]] = None,
+    lots: Optional[int] = None,
 ) -> BacktestResult:
     """Run expiry-day WebSocket replay backtest.
 
@@ -423,12 +425,17 @@ def run_ws_backtest(
     end = end or date.today()
     start = start or (end - timedelta(days=90))
     capital = float(capital or cfg.default_capital)
+    trade_lots = max(int(lots if lots is not None else cfg.lots), 1)
     overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
         "Ticks replayed through the same WebSocket TickBus contract as live trading.",
         "cas_detected_at is stamped in the 15:28–15:30 IST CAS window.",
-        "ce_sold_at / pe_sold_at measure detect→sell path latency on the replay bus.",
-        f"OTM steps CE=+{cfg.ce_otm_steps} PE=-{cfg.pe_otm_steps}, lots={cfg.lots}.",
+        "ce_sold_at / pe_sold_at are execution timestamps after CAS detect.",
+        (
+            "Strike rule: spot<ATM → sell ATM CE + (ATM−N) PE; "
+            "spot>ATM → sell (ATM+N) CE + ATM PE."
+        ),
+        f"OTM steps CE={cfg.ce_otm_steps} PE={cfg.pe_otm_steps}, lots={trade_lots}.",
         (
             "Entry premium: real Kite option minute candles at CAS detect when available; "
             "otherwise BS fallback (no fixed ₹100 floor)."
@@ -463,7 +470,7 @@ def run_ws_backtest(
             token = int(meta["token"])
             gap = int(meta["strike_gap"])
             lot = int(meta["default_lot"])
-            qty = cfg.lots * lot
+            qty = trade_lots * lot
 
             manual_close = _resolve_override(d, index)
             data_source = "synthetic"
@@ -607,6 +614,7 @@ def run_ws_backtest(
                     ce_settlement=round(ce_s, 2),
                     pe_settlement=round(pe_s, 2),
                     lot_size=lot,
+                    lots=trade_lots,
                     quantity=qty,
                     pnl=round(pnl, 2),
                     ticks_replayed=n,

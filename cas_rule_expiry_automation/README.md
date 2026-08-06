@@ -11,7 +11,16 @@ WebSocket-first Zerodha algo for SEBI’s **Closing Auction Session** (CAS).
 
 When armed, KiteTicker (`MODE_FULL`) streams the index. The instant
 `ohlc.close` flips to today’s CAS print (or optional LTP-in-window mode),
-the app market-sells configurable **OTM** Call + Put (default ATM±1).
+the app market-sells the **OTM** Call + Put that collapse to ~0 at settlement:
+
+| Spot vs ATM | CE sold | PE sold |
+|-------------|---------|---------|
+| Spot **below** ATM | **ATM CE** | ATM − N |
+| Spot **above** ATM | ATM + N | **ATM PE** |
+| Spot **exact** ATM | ATM + N | ATM − N |
+
+Example (Sensex gap=100, N=1): close **78954.76** → ATM **79000** → sell CE **79000** + PE **78900**.
+If close were **79022** → sell CE **79100** + PE **79000**.
 
 > True zero latency over the public internet is impossible. Lowest practical
 > latency = official Kite WebSocket + VPS in **Mumbai (ap-south-1)** +
@@ -67,8 +76,8 @@ Every fire persists and shows:
 | Field | Meaning |
 |-------|---------|
 | `cas_detected_at` | Exact IST timestamp when CAS close appeared (~15:28–15:30) |
-| `ce_sold_at` | When ATM+N Call market sell was submitted |
-| `pe_sold_at` | When ATM−N Put market sell was submitted |
+| `ce_sold_at` | When the CE market sell was submitted (IST) |
+| `pe_sold_at` | When the PE market sell was submitted (IST) |
 | `detect_to_ce_ms` / `detect_to_pe_ms` | Milliseconds from detect → each leg |
 | `detect_to_done_ms` | Total detect → both legs done |
 
@@ -98,7 +107,8 @@ print(r.num_trades, r.ws_ticks_total, r.total_pnl, r.total_return_pct)
 "
 ```
 
-Or use the **WebSocket backtest** panel in the UI.
+Or use the **WebSocket backtest** panel in the UI (configurable **lots**,
+optional force close, and CE/PE sold timestamps).
 
 ## Layout
 

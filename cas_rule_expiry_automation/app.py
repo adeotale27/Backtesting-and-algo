@@ -227,6 +227,7 @@ def api_backtest():
     end = parse(data.get("end"), date.today())
     start = parse(data.get("start"), date(end.year, max(1, end.month - 3), 1))
     capital = float(data.get("capital") or cfg.default_capital)
+    lots = int(data.get("lots") or cfg.lots)
 
     # Optional real CAS close override (fixes synthetic wrong closes)
     close_overrides = {}
@@ -266,6 +267,7 @@ def api_backtest():
         end=end,
         capital=capital,
         close_overrides=close_overrides or None,
+        lots=lots,
     )
     out = result.to_dict()
     if kite_error:

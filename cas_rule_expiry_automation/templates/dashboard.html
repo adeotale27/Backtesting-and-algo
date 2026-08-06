@@ -13,7 +13,7 @@
   <header class="top">
     <div class="brand">
       CAS Rule Expiry Automation
-      <small>WebSocket · Tue NIFTY · Thu SENSEX · ATM±OTM sell</small>
+      <small>WebSocket · Tue NIFTY · Thu SENSEX · ATM-biased OTM sell</small>
     </div>
     <div class="badges">
       <span id="b-live" class="badge {{ 'live' if cfg.live_trading else 'warn' }}">{{ 'LIVE' if cfg.live_trading else 'DRY-RUN' }}</span>
@@ -158,9 +158,10 @@
         <div><label>Start</label><input id="bt_start" type="date" /></div>
         <div><label>End</label><input id="bt_end" type="date" /></div>
         <div><label>Capital</label><input id="bt_capital" type="number" value="{{ cfg.default_capital|int }}" /></div>
-        <div><label>Force close (optional)</label><input id="bt_force_close" type="number" step="0.01" placeholder="e.g. 78954.76" /></div>
+        <div><label>Lots</label><input id="bt_lots" type="number" min="1" value="{{ cfg.lots }}" /></div>
       </div>
       <div class="row" style="margin-top:0.5rem">
+        <div><label>Force close (optional)</label><input id="bt_force_close" type="number" step="0.01" placeholder="e.g. 78954.76" /></div>
         <div>
           <label>Force close applies to</label>
           <select id="bt_force_index">
@@ -168,13 +169,14 @@
             <option value="NIFTY">NIFTY</option>
           </select>
         </div>
-        <div style="display:flex;align-items:end">
-          <button class="btn-primary" style="width:100%" onclick="runBacktest()">Run WS backtest</button>
-        </div>
+      </div>
+      <div class="actions">
+        <button class="btn-primary" onclick="runBacktest()">Run WS backtest</button>
       </div>
       <p class="hint" style="margin-top:0.6rem">
-        Close priority: <strong>Force close</strong> → Kite historical → synthetic.
-        If your token is expired, paste the real CAS close here (e.g. Sensex <strong>78954.76</strong> for 06-08-2026).
+        Strike rule: spot &lt; ATM → sell <strong>ATM CE</strong> + (ATM−N) PE;
+        spot &gt; ATM → sell (ATM+N) CE + <strong>ATM PE</strong>.
+        Close priority: Force close → Kite → synthetic.
       </p>
       <div class="kpis" id="bt-kpis"></div>
       <div id="bt-notes" class="hint"></div>
@@ -186,8 +188,10 @@
               <th>CE strike</th><th>PE strike</th>
               <th>CE prem</th><th>PE prem</th>
               <th>CE exit</th><th>PE exit</th>
-              <th>Qty</th><th>Spot src</th><th>Prem src</th>
-              <th>CAS detected</th><th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
+              <th>Lots</th><th>Qty</th>
+              <th>CAS detected</th><th>CE sold at</th><th>PE sold at</th>
+              <th>→CE ms</th><th>→PE ms</th><th>P&amp;L</th>
+              <th>Prem src</th>
             </tr>
           </thead>
           <tbody id="bt-rows"></tbody>
@@ -326,6 +330,7 @@
           start: $("bt_start").value || null,
           end: $("bt_end").value || null,
           capital: Number($("bt_capital").value || 500000),
+          lots: Number($("bt_lots").value || 1),
           force_close: $("bt_force_close").value || null,
           force_index: $("bt_force_index").value || "SENSEX",
         })});
@@ -340,18 +345,21 @@
           ["Avg detect→done", (r.avg_detect_to_done_ms||0).toFixed(2)+" ms"],
           ["Final", "₹"+r.final_capital.toLocaleString("en-IN")],
         ].map(([k,v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
-        $("bt-notes").textContent = (r.notes || []).slice(0, 4).join(" · ");
+        $("bt-notes").textContent = (r.notes || []).slice(0, 5).join(" · ");
         $("bt-rows").innerHTML = (r.trades||[]).map(t =>
           `<tr>
             <td>${t.entry_date}</td><td>${t.index}</td><td>${t.close_price}</td><td>${t.atm}</td>
             <td><strong>${t.ce_strike}</strong></td><td><strong>${t.pe_strike}</strong></td>
             <td>${t.ce_premium}</td><td>${t.pe_premium}</td>
             <td>${t.ce_settlement}</td><td>${t.pe_settlement}</td>
-            <td>${t.quantity}</td><td>${t.data_source||""}</td><td>${t.premium_source||""}</td>
-            <td>${(t.cas_detected_at||"").replace("T"," ").slice(11,23)}</td>
+            <td>${t.lots ?? Math.round((t.quantity||0)/(t.lot_size||1))}</td><td>${t.quantity}</td>
+            <td title="${t.cas_detected_at||""}">${(t.cas_detected_at||"—").replace("T"," ").slice(11,23)}</td>
+            <td title="${t.ce_sold_at||""}"><strong>${(t.ce_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
+            <td title="${t.pe_sold_at||""}"><strong>${(t.pe_sold_at||"—").replace("T"," ").slice(11,23)}</strong></td>
             <td>${t.detect_to_ce_ms}</td><td>${t.detect_to_pe_ms}</td><td>${t.pnl}</td>
+            <td>${t.premium_source||""}</td>
           </tr>`
-        ).join("") || "<tr><td colspan=16>No expiry days</td></tr>";
+        ).join("") || "<tr><td colspan=19>No expiry days</td></tr>";
         msg("Backtest complete","ok");
       } catch(e){ msg(e.message,"err"); }
     }

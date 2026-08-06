@@ -34,10 +34,23 @@ def test_expiry_calendar_tue_thu(tmp_path):
 
 
 def test_otm_strikes():
+    # Exact ATM → classic wings
     atm, ce, pe = otm_strikes(24850, 50, 1, 1)
     assert atm == 24850 and ce == 24900 and pe == 24800
     atm, ce, pe = otm_strikes(81100, 100, 2, 2)
     assert ce == 81300 and pe == 80900
+
+    # Spot below ATM (Sensex 06-Aug-2026 style): sell ATM CE + (ATM−1) PE
+    atm, ce, pe = otm_strikes(78954.76, 100, 1, 1)
+    assert atm == 79000 and ce == 79000 and pe == 78900
+
+    # Spot above ATM: sell (ATM+1) CE + ATM PE
+    atm, ce, pe = otm_strikes(79022, 100, 1, 1)
+    assert atm == 79000 and ce == 79100 and pe == 79000
+
+    # Nifty spot below ATM
+    atm, ce, pe = otm_strikes(24837, 50, 1, 1)
+    assert atm == 24850 and ce == 24850 and pe == 24800
 
 
 def test_round_atm():
@@ -93,8 +106,51 @@ def test_ws_backtest_synthetic(tmp_path):
         assert t["detect_to_done_ms"] >= 0
         assert t["ce_strike"] > t["atm"] or t["ce_strike"] == t["atm"]
         assert t["pe_strike"] < t["atm"] or t["pe_strike"] == t["atm"]
-        assert t["ce_premium"] >= 1
+        assert t["ce_premium"] >= 0
+        assert t["pe_premium"] >= 0
+        assert t["lots"] >= 1
         assert t["data_source"] == "synthetic"
+
+
+def test_ws_backtest_lots_and_sensex_strike_bias(tmp_path):
+    cfg = _cfg(tmp_path)
+    result = run_ws_backtest(
+        kite=None,
+        config=cfg,
+        start=date(2026, 8, 6),
+        end=date(2026, 8, 6),
+        capital=500_000,
+        lots=3,
+        close_overrides={"2026-08-06:SENSEX": 78954.76},
+    )
+    assert result.num_trades == 1
+    t = result.trades[0]
+    assert t["index"] == "SENSEX"
+    assert t["close_price"] == 78954.76
+    assert t["atm"] == 79000
+    assert t["ce_strike"] == 79000  # ATM CE when spot < ATM
+    assert t["pe_strike"] == 78900
+    assert t["lots"] == 3
+    assert t["quantity"] == 3 * 20  # Sensex lot
+    assert t["cas_detected_at"]
+    assert t["ce_sold_at"]
+    assert t["pe_sold_at"]
+    assert t["detect_to_ce_ms"] >= 0
+    assert t["detect_to_pe_ms"] >= 0
+
+    # Spot above ATM → ATM PE
+    result2 = run_ws_backtest(
+        kite=None,
+        config=cfg,
+        start=date(2026, 8, 6),
+        end=date(2026, 8, 6),
+        capital=500_000,
+        lots=1,
+        close_overrides={"2026-08-06:SENSEX": 79022},
+    )
+    t2 = result2.trades[0]
+    assert t2["ce_strike"] == 79100
+    assert t2["pe_strike"] == 79000
 
 
 def test_cas_premium_bs_fallback_no_floor():
