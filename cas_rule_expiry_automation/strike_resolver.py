@@ -6,7 +6,7 @@ import logging
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from cas_rule_expiry_automation.expiry_calendar import INDEX_META
@@ -85,16 +85,63 @@ def common_prefix(symbols: List[str]) -> str:
 
 
 def detect_expiry_prefix(kite: Any, index: str, on_date: Optional[date] = None) -> Optional[str]:
+    """Find option symbol prefix for ``index``.
+
+    Prefers contracts expiring on ``on_date`` (today). If none (non-expiry /
+    paper practice day), falls back to the nearest upcoming weekly expiry so
+    strike resolve still works for latency tests.
+    """
     meta = INDEX_META[index]
     target = on_date or date.today()
     instruments = kite.instruments(meta["exchange"])
-    symbols = [
-        i["tradingsymbol"]
+    name = meta["name"]
+    typed = [
+        i
         for i in instruments
-        if i["tradingsymbol"].startswith(meta["name"])
-        and i.get("expiry") == target
+        if str(i.get("tradingsymbol", "")).startswith(name)
         and i.get("instrument_type") in ("CE", "PE")
+        and i.get("expiry")
     ]
+
+    def _as_date(exp) -> Optional[date]:
+        if exp is None:
+            return None
+        if isinstance(exp, date) and not isinstance(exp, datetime):
+            return exp
+        if hasattr(exp, "date"):
+            try:
+                return exp.date()
+            except Exception:
+                return None
+        try:
+            return date.fromisoformat(str(exp)[:10])
+        except Exception:
+            return None
+
+    by_expiry: Dict[date, List[str]] = {}
+    for i in typed:
+        ed = _as_date(i.get("expiry"))
+        if ed is None:
+            continue
+        by_expiry.setdefault(ed, []).append(i["tradingsymbol"])
+
+    symbols = by_expiry.get(target) or []
+    if not symbols:
+        future = sorted(e for e in by_expiry if e >= target)
+        if future:
+            symbols = by_expiry[future[0]]
+            logger.info(
+                "%s: no expiry on %s — using nearest %s (%d contracts)",
+                index,
+                target,
+                future[0],
+                len(symbols),
+            )
+        elif by_expiry:
+            # Last resort: most recent past weekly (holiday / after hours)
+            past = sorted(by_expiry.keys())[-1]
+            symbols = by_expiry[past]
+            logger.warning("%s: using past expiry %s for prefix", index, past)
     if not symbols:
         return None
     return common_prefix(symbols)

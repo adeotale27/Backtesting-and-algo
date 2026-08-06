@@ -50,6 +50,8 @@ class AppConfig:
     watch_end: time = field(default_factory=lambda: time(15, 35))
 
     live_trading: bool = False
+    # Paper: stream Kite + dry-run MARKET even when today is not Tue/Thu
+    paper_any_day: bool = True
     host: str = "127.0.0.1"
     port: int = 5030
 
@@ -60,6 +62,8 @@ class AppConfig:
     # Minutes of time-value assumed remaining when CAS close prints (BS fallback only)
     entry_time_minutes: float = 15.0
     tick_interval_ms: int = 100
+    # Modeled Zerodha MARKET ack latency for backtest timing (not instantaneous)
+    fill_latency_ms: float = 8.0
 
     config_path: str = DEFAULT_CONFIG_PATH
 
@@ -121,6 +125,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         watch_start=_parse_time(raw_start or "15:27:00"),
         watch_end=_parse_time(p.get("cas_window", "watch_end", fallback="15:35:00")),
         live_trading=p.getboolean("safety", "live_trading", fallback=False),
+        paper_any_day=p.getboolean("safety", "paper_any_day", fallback=True),
         host=p.get("server", "host", fallback="127.0.0.1").strip(),
         port=p.getint("server", "port", fallback=5030),
         default_capital=p.getfloat("backtest", "default_capital", fallback=500_000),
@@ -132,6 +137,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
             "backtest", "entry_time_minutes", fallback=15.0
         ),
         tick_interval_ms=p.getint("backtest", "tick_interval_ms", fallback=100),
+        fill_latency_ms=p.getfloat("backtest", "fill_latency_ms", fallback=8.0),
         config_path=cfg_path,
     )
 

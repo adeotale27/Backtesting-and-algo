@@ -33,6 +33,73 @@ def test_expiry_calendar_tue_thu(tmp_path):
     assert indexes_for_date(date(2026, 8, 5), cfg) == []
 
 
+def test_paper_any_day_watches_on_non_expiry(tmp_path):
+    """Paper + paper_any_day streams both indexes even when calendar is empty."""
+    from cas_rule_expiry_automation.expiry_calendar import today_indexes
+    from unittest.mock import patch
+
+    cfg = _cfg(tmp_path)
+    cfg.live_trading = False
+    cfg.paper_any_day = True
+    wed = datetime(2026, 8, 5, 12, 0, tzinfo=IST)  # Wednesday — no expiry
+    with patch("cas_rule_expiry_automation.expiry_calendar.get_ist_now", return_value=wed):
+        assert today_indexes(cfg, wed) == ["NIFTY", "SENSEX"]
+        day = describe_today(cfg, wed)
+        assert day["is_expiry_day"] is False
+        assert day["indexes"] == ["NIFTY", "SENSEX"]
+        assert day["paper_any_day"] is True
+
+    # LIVE money still respects calendar
+    cfg.live_trading = True
+    assert today_indexes(cfg, wed) == []
+
+
+def test_backtest_models_market_ack_latency(tmp_path):
+    """Backtest detect→sell is not instant — models fill_latency_ms like live ack."""
+    cfg = _cfg(tmp_path)
+    cfg.fill_latency_ms = 12.0
+    result = run_ws_backtest(
+        kite=None,
+        config=cfg,
+        start=date(2026, 8, 6),
+        end=date(2026, 8, 6),
+        capital=500_000,
+        lots=1,
+        close_overrides={"2026-08-06:SENSEX": 78954.76},
+    )
+    assert result.num_trades == 1
+    t = result.trades[0]
+    assert t["detect_to_ce_ms"] >= 12.0
+    assert t["detect_to_pe_ms"] >= t["detect_to_ce_ms"]
+    assert t["detect_to_done_ms"] >= 12.0
+    assert result.avg_detect_to_done_ms >= 12.0
+
+
+def test_nearest_expiry_prefix_fallback():
+    """Non-expiry day: use nearest upcoming weekly contracts for strike resolve."""
+    from cas_rule_expiry_automation.strike_resolver import detect_expiry_prefix
+    from datetime import date as d
+
+    class FakeKite:
+        def instruments(self, exchange):
+            return [
+                {
+                    "tradingsymbol": "SENSEX2681379000CE",
+                    "expiry": d(2026, 8, 13),
+                    "instrument_type": "CE",
+                },
+                {
+                    "tradingsymbol": "SENSEX2681378900PE",
+                    "expiry": d(2026, 8, 13),
+                    "instrument_type": "PE",
+                },
+            ]
+
+    # Wednesday 2026-08-05 — no contracts expire that day
+    prefix = detect_expiry_prefix(FakeKite(), "SENSEX", on_date=d(2026, 8, 5))
+    assert prefix and prefix.startswith("SENSEX")
+
+
 def test_otm_strikes():
     # Exact ATM → classic wings
     atm, ce, pe = otm_strikes(24850, 50, 1, 1)
@@ -107,7 +174,7 @@ def test_ws_backtest_synthetic(tmp_path):
         assert "15:28" in t["cas_detected_at"] or "15:29" in t["cas_detected_at"]
         assert t["ce_sold_at"]
         assert t["pe_sold_at"]
-        assert t["detect_to_done_ms"] >= 0
+        assert t["detect_to_done_ms"] >= 8.0
         assert t["ce_strike"] > t["atm"] or t["ce_strike"] == t["atm"]
         assert t["pe_strike"] < t["atm"] or t["pe_strike"] == t["atm"]
         assert t["ce_premium"] >= 0

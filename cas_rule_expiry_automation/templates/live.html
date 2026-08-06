@@ -23,7 +23,7 @@
       <button type="button" id="kite-btn" class="kite-btn" onclick="toggleKitePanel()" title="Update daily access token">
         Kite API
         <span id="kite-mode" class="kite-mode {{ 'live' if cfg.live_trading else 'offline' }}">
-          {{ 'LIVE' if cfg.live_trading else 'OFFLINE' }}
+          {{ 'ORDERS ON' if cfg.live_trading else 'PAPER' }}
         </span>
       </button>
       <span id="b-live" class="badge {{ 'live' if cfg.live_trading else 'warn' }}">{{ 'LIVE ORDERS' if cfg.live_trading else 'PAPER' }}</span>
@@ -67,12 +67,12 @@
     <section class="card wide">
       <h2>How this works (simple)</h2>
       <ol class="steps">
-        <li><strong>Paper / Live</strong> — Paper = practice (no real money). Live = real Zerodha <em>MARKET</em> sells.</li>
-        <li><strong>Activate CAS window</strong> — starts watching. On expiry day, the instant CAS close prints (~15:28–15:30), CE + PE are <strong>MARKET SOLD together</strong> (parallel, milliseconds).</li>
+        <li><strong>Paper / Live</strong> — Paper = real Kite WebSocket + quotes, but MARKET sells are dry-run (no money). Live = same path, real Zerodha orders.</li>
+        <li><strong>Activate CAS window</strong> — starts watching. On expiry day (or any day in Paper), when CAS close prints (~15:28–15:30), CE + PE are <strong>MARKET SOLD together</strong> (parallel). Timing ms show detect→ack latency.</li>
         <li><strong>Deactivate</strong> — stops watching. Nothing will sell.</li>
       </ol>
       <div id="mode-big" class="mode-banner {{ 'live' if cfg.live_trading else 'paper' }}">
-        {{ 'LIVE — real Zerodha orders' if cfg.live_trading else 'PAPER — no real orders' }}
+        {{ 'LIVE — real Zerodha MARKET orders' if cfg.live_trading else 'PAPER — real Kite ticks, dry-run MARKET (no orders sent)' }}
       </div>
     </section>
 
@@ -229,8 +229,8 @@
       const el = $("arm-hint");
       if (el) {
         el.textContent = on
-          ? "Status: CAS WINDOW ACTIVE — watching WebSocket. When close prints (15:27–15:35), CE+PE MARKET SELL automatically. Survives page refresh."
-          : "Status: CAS WINDOW OFF — not watching. Click “Activate CAS window” on an expiry day.";
+          ? "Status: CAS WINDOW ACTIVE — real Kite WebSocket. Close print → parallel MARKET (paper=dry-run / live=Zerodha). Works on non-expiry days in PAPER."
+          : "Status: CAS WINDOW OFF — not watching. Activate to stream Kite ticks (Paper OK any day; Live money still expiry-gated).";
       }
     }
 
@@ -266,7 +266,8 @@
         `<tr>
           <td>${(f.ts||"").slice(11,23)}</td><td>${f.index}</td><td>${f.opt_type}</td>
           <td>${f.tradingsymbol}</td><td>${f.strike}</td><td>${f.quantity}</td>
-          <td>${f.order_id}</td><td>${(f.latency_ms||0).toFixed(1)}ms</td><td>${f.trigger}</td>
+          <td>${f.order_id}</td><td>${(f.latency_ms||0).toFixed(1)}ms</td>
+          <td>${f.dry_run ? "PAPER" : "LIVE"} · ${f.trigger}</td>
         </tr>`
       ).join("") || `<tr><td colspan="9" style="color:var(--muted)">No fills</td></tr>`;
     }
@@ -345,7 +346,7 @@
         const d = await api("/api/live", { method: "POST", body: JSON.stringify({ enabled: !live }) });
         setModeBadges(!!d.live_trading);
         $("toggle-live-label").textContent = d.live_trading ? "PAPER" : "LIVE orders";
-        msg(d.live_trading ? "LIVE orders ON" : "PAPER mode — no real orders", d.live_trading ? "err" : "ok");
+        msg(d.live_trading ? "LIVE orders ON — real Zerodha MARKET" : "PAPER — Kite data live, orders dry-run", d.live_trading ? "err" : "ok");
       } catch (e) { msg(e.message, "err"); }
     }
     async function saveSettings() {

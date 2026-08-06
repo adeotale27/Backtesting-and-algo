@@ -61,6 +61,9 @@ class AutomationEngine:
 
     def reload_config(self) -> None:
         self.config = load_config(self.config.config_path)
+        # Paper↔live or calendar knobs may change which indexes to watch
+        self._indexes_day = None
+        self._indexes_cache = []
         if self.strategy:
             self.strategy.config = self.config
             self.strategy.orders.lots = self.config.lots
@@ -80,6 +83,7 @@ class AutomationEngine:
                 "pe_otm_steps": self.config.pe_otm_steps,
                 "product": self.config.product,
                 "live_trading": self.config.live_trading,
+                "paper_any_day": self.config.paper_any_day,
                 "has_token": bool((self.config.access_token or "").strip()),
                 "has_key": bool(
                     (self.config.api_key or "").strip()

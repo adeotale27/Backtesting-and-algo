@@ -505,29 +505,44 @@ def _simulate_sells(
     ce_strike: int,
     pe_strike: int,
     trigger: str,
+    fill_latency_ms: float = 8.0,
 ) -> TimingEvent:
-    """Model live path: CAS detect → parallel MARKET SELL both legs ASAP."""
+    """Model live path: CAS detect → parallel MARKET SELL with broker-like ack delay.
+
+    Live place_order is not instantaneous — Zerodha typically acks in a few ms.
+    Backtest stamps that modeled latency onto CE/PE (parallel, same window),
+    instead of treating detect==fill.
+    """
     timing = new_detect_event(
         index, close_px, trigger, source="backtest", detected_at=detect_iso
     )
     base = datetime.fromisoformat(detect_iso)
 
-    # Parallel punches — both legs stamped nearly together (same as live ThreadPool)
-    done_at = time.perf_counter()
-    ms = max((done_at - detect_perf) * 1000.0, 0.05)
-    timing.detect_to_ce_ms = round(ms, 3)
-    timing.detect_to_pe_ms = round(ms + 0.02, 3)  # tiny scheduling skew
-    timing.ce_sold_at = (base + timedelta(milliseconds=timing.detect_to_ce_ms)).isoformat(
+    # Local resolve cost (tiny) + modeled MARKET ack RTT (like live kite.place_order)
+    local_ms = max((time.perf_counter() - detect_perf) * 1000.0, 0.0)
+    ack_ms = max(float(fill_latency_ms), 1.0)
+    # Parallel CE+PE — slight scheduling skew like ThreadPool
+    ce_ms = round(local_ms + ack_ms, 3)
+    pe_ms = round(local_ms + ack_ms + 0.4, 3)
+    timing.detect_to_ce_ms = ce_ms
+    timing.detect_to_pe_ms = pe_ms
+    timing.ce_sold_at = (base + timedelta(milliseconds=ce_ms)).isoformat(
         timespec="milliseconds"
     )
-    timing.pe_sold_at = (base + timedelta(milliseconds=timing.detect_to_pe_ms)).isoformat(
+    timing.pe_sold_at = (base + timedelta(milliseconds=pe_ms)).isoformat(
         timespec="milliseconds"
     )
     timing.ce_symbol = f"{index}{ce_strike}CE"
     timing.pe_symbol = f"{index}{pe_strike}PE"
-    timing.detect_to_done_ms = timing.detect_to_pe_ms
+    timing.detect_to_done_ms = pe_ms
     timing.dry_run = True
-    timing.extra = {"path": "ws_backtest_replay", "order_type": "MARKET", "parallel": True}
+    timing.extra = {
+        "path": "ws_backtest_replay",
+        "order_type": "MARKET",
+        "parallel": True,
+        "fill_latency_ms": ack_ms,
+        "local_resolve_ms": round(local_ms, 3),
+    }
     return timing
 
 
@@ -557,6 +572,10 @@ def run_ws_backtest(
     overrides = {str(k).upper(): float(v) for k, v in (close_overrides or {}).items()}
     notes = [
         "Same detect → MARKET sell path as Live (replayed historically).",
+        (
+            f"Detect→sell latency modeled at ~{cfg.fill_latency_ms:g}ms "
+            "(Zerodha MARKET ack is not instant — same idea as live)."
+        ),
         "CAS detect inferred from the index print bar (~15:29:30).",
         (
             "Strike rule: spot<ATM → sell ATM CE + (ATM−N) PE; "
@@ -691,7 +710,14 @@ def run_ws_backtest(
                 close_px, gap, cfg.ce_otm_steps, cfg.pe_otm_steps
             )
             timing = _simulate_sells(
-                detect_iso, detect_perf, index, close_px, ce_k, pe_k, trigger
+                detect_iso,
+                detect_perf,
+                index,
+                close_px,
+                ce_k,
+                pe_k,
+                trigger,
+                fill_latency_ms=cfg.fill_latency_ms,
             )
             timings.append(timing.to_dict())
             if timing.detect_to_done_ms is not None:

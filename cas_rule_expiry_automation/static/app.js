@@ -26,12 +26,15 @@ function setModeBadges(live) {
     bLive.className = "badge " + (live ? "live" : "warn");
   }
   if (kiteMode) {
-    kiteMode.textContent = live ? "LIVE" : "OFFLINE";
+    // PAPER still streams real Kite data — only orders are dry-run
+    kiteMode.textContent = live ? "ORDERS ON" : "PAPER";
     kiteMode.className = "kite-mode " + (live ? "live" : "offline");
   }
   const modeBig = $("mode-big");
   if (modeBig) {
-    modeBig.textContent = live ? "LIVE — real Zerodha orders" : "PAPER — no real orders";
+    modeBig.textContent = live
+      ? "LIVE — real Zerodha MARKET orders"
+      : "PAPER — real Kite ticks, dry-run MARKET (no orders sent)";
     modeBig.className = "mode-banner " + (live ? "live" : "paper");
   }
 }

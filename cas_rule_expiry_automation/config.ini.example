@@ -42,6 +42,9 @@ watch_end = 15:35:00
 
 [safety]
 live_trading = false
+# Paper mode: stream real Kite ticks + dry MARKET path even on non-expiry days
+# (LIVE money still waits for Tue NIFTY / Thu SENSEX when expiry_only=true)
+paper_any_day = true
 
 [server]
 host = 127.0.0.1
@@ -58,3 +61,5 @@ assumed_cas_otm_premium = 0.0
 entry_time_minutes = 15.0
 # Simulated WebSocket tick interval when replaying candles (ms)
 tick_interval_ms = 100
+# Modeled detect→MARKET-ack latency (ms), like live Zerodha place_order RTT
+fill_latency_ms = 8.0

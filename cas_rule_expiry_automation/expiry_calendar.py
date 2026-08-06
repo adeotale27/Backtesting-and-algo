@@ -42,7 +42,7 @@ INDEX_META = {
 
 
 def indexes_for_date(d: date, cfg: AppConfig) -> List[str]:
-    """Return which underlyings to trade on date ``d``."""
+    """Return which underlyings to trade on date ``d`` (strict expiry calendar)."""
     if not cfg.expiry_only:
         return ["NIFTY", "SENSEX"]
     out: List[str] = []
@@ -54,20 +54,34 @@ def indexes_for_date(d: date, cfg: AppConfig) -> List[str]:
 
 
 def today_indexes(cfg: AppConfig, now: Optional[datetime] = None) -> List[str]:
+    """Indexes to watch today.
+
+    Live money: only weekly expiry underlyings (unless expiry_only=false).
+    Paper + paper_any_day: if today is not an expiry, still watch both so you
+    can verify WebSocket → detect → dry MARKET path with real Kite ticks.
+    """
     now = now or get_ist_now()
-    return indexes_for_date(now.date(), cfg)
+    indexes = indexes_for_date(now.date(), cfg)
+    if indexes:
+        return indexes
+    if (not cfg.live_trading) and getattr(cfg, "paper_any_day", True):
+        return ["NIFTY", "SENSEX"]
+    return []
 
 
 def describe_today(cfg: AppConfig, now: Optional[datetime] = None) -> dict:
     now = now or get_ist_now()
     d = now.date()
-    indexes = indexes_for_date(d, cfg)
+    calendar = indexes_for_date(d, cfg)
+    indexes = today_indexes(cfg, now)
     return {
         "date": d.isoformat(),
         "weekday": WEEKDAY_NAMES[d.weekday()],
         "weekday_num": d.weekday(),
-        "is_expiry_day": bool(indexes),
+        "is_expiry_day": bool(calendar),
         "indexes": indexes,
+        "calendar_indexes": calendar,
+        "paper_any_day": bool(getattr(cfg, "paper_any_day", True)) and not cfg.live_trading,
         "nifty_on": WEEKDAY_NAMES[cfg.nifty_expiry_weekday],
         "sensex_on": WEEKDAY_NAMES[cfg.sensex_expiry_weekday],
     }
