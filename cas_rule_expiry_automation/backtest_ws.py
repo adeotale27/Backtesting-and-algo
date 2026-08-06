@@ -44,6 +44,8 @@ class BacktestTrade:
     pnl: float
     decay_points: float = 0.0
     total_decay: float = 0.0
+    ce_decay: float = 0.0
+    pe_decay: float = 0.0
     ticks_replayed: int = 0
     trigger: str = ""
     data_source: str = "synthetic"
@@ -175,47 +177,70 @@ def _option_minute_bars(
 def _premium_from_bars(
     bars: List[dict], detect_ts: datetime
 ) -> tuple[Optional[float], Optional[float], str]:
-    """Pick entry premium at CAS print, exit near end of bars.
+    """Live Kite minute premiums around CAS detect — no static/dummy values.
 
-    Kite only gives 1-minute option bars. The CAS close prints mid-minute
-    (typically ~15:29:25–15:29:30). Using that minute's **open** would be the
-    pre-print premium (e.g. PE ₹102 at 15:29:00) and badly overstates fills.
-    We therefore use the **close** of the detect minute as the achievable
-    post-print market-sell fill, and keep open in the detail string.
+    Kite historical is 1-minute only. CAS close prints mid-minute (~15:29:30).
+    Inside that minute the option collapses (e.g. PE open ₹102 → close ₹1.2).
+
+    Entry = **last minute close strictly before the CAS-print minute**
+    (live LTP on the tape just before the print — what a fast sell targets).
+    Exit  = last available Kite bar close after the print (real tape, not 0).
+
+    Never invents floors. Returns None if bars are missing.
     """
     if not bars:
         return None, None, "no_option_bars"
 
     detect = _aware_ist(detect_ts)
-    # Bar covering the detect minute (Kite stamps bars at minute start)
-    same_minute = [
-        b
-        for b in bars
-        if _aware_ist(b["date"]).replace(second=0, microsecond=0)
-        == detect.replace(second=0, microsecond=0)
-    ]
-    earlier = [b for b in bars if _aware_ist(b["date"]) <= detect]
-    if same_minute:
-        entry_bar = same_minute[0]
-    elif earlier:
-        entry_bar = earlier[-1]
+    detect_minute = detect.replace(second=0, microsecond=0)
+
+    def _bar_minute(b: dict) -> datetime:
+        return _aware_ist(b["date"]).replace(second=0, microsecond=0)
+
+    prior = [b for b in bars if _bar_minute(b) < detect_minute]
+    cas_bars = [b for b in bars if _bar_minute(b) == detect_minute]
+    after = [b for b in bars if _bar_minute(b) > detect_minute]
+
+    if prior:
+        entry_bar = prior[-1]
+        entry = float(entry_bar.get("close") or 0)
+        entry_tag = "pre_cas_close"
+    elif cas_bars:
+        # No prior bar — use CAS-minute open (still pre-collapse tape)
+        entry_bar = cas_bars[0]
+        entry = float(entry_bar.get("open") or entry_bar.get("close") or 0)
+        entry_tag = "cas_minute_open"
     else:
-        entry_bar = min(
-            bars, key=lambda b: abs((_aware_ist(b["date"]) - detect).total_seconds())
+        return None, None, "no_entry_bar"
+
+    if entry <= 0:
+        return None, None, "entry_zero"
+
+    # Exit: last real tape print after CAS (prefer post-print bars)
+    if after:
+        exit_bar = after[-1]
+    elif cas_bars:
+        exit_bar = cas_bars[0]
+    else:
+        exit_bar = bars[-1]
+    exit_px = float(exit_bar.get("close") or 0)
+
+    cas_note = ""
+    if cas_bars:
+        cb = cas_bars[0]
+        cas_note = (
+            f" cas_min@{_bar_minute(cb).strftime('%H:%M')} "
+            f"O={float(cb.get('open') or 0):.2f} "
+            f"H={float(cb.get('high') or 0):.2f} "
+            f"L={float(cb.get('low') or 0):.2f} "
+            f"C={float(cb.get('close') or 0):.2f}"
         )
 
-    bar_open = float(entry_bar.get("open") or 0)
-    bar_close = float(entry_bar.get("close") or 0)
-    bar_low = float(entry_bar.get("low") or bar_close)
-    bar_high = float(entry_bar.get("high") or bar_open)
-    # Post-CAS print fill: minute close (collapse already underway).
-    # Fall back to low if close missing.
-    entry = bar_close if bar_close > 0 else bar_low
-    exit_px = float(bars[-1].get("close") or 0)
     detail = (
         f"entry@{_aware_ist(entry_bar['date']).strftime('%H:%M')} "
-        f"close={entry:.2f} (open={bar_open:.2f} hi={bar_high:.2f} lo={bar_low:.2f}); "
-        f"exit@{_aware_ist(bars[-1]['date']).strftime('%H:%M')} close={exit_px:.2f}"
+        f"{entry_tag}={entry:.2f}; "
+        f"exit@{_aware_ist(exit_bar['date']).strftime('%H:%M')} "
+        f"close={exit_px:.2f};{cas_note}"
     )
     return entry, exit_px, detail
 
@@ -297,19 +322,27 @@ def _live_option_pnl_legs(
     entry_minutes: float,
     strike_gap: int,
 ) -> Dict[str, Any]:
-    """Resolve real CE/PE premiums from Kite; fall back to BS if missing."""
+    """Resolve CE/PE premiums from live Kite option minute bars only.
+
+    Does **not** invent static floors. If a leg has no Kite bars, that leg is
+    marked missing and BS is used only as an explicit ``bs_fallback`` with a
+    loud detail flag (never silently mixed as if it were live tape).
+    """
     out: Dict[str, Any] = {
         "ce_premium": None,
         "pe_premium": None,
         "ce_exit": None,
         "pe_exit": None,
-        "premium_source": "bs_fallback",
+        "premium_source": "missing",
         "detail": "",
+        "ce_live": False,
+        "pe_live": False,
     }
     details = []
-    for opt, strike, key_p, key_e in (
-        ("CE", ce_strike, "ce_premium", "ce_exit"),
-        ("PE", pe_strike, "pe_premium", "pe_exit"),
+    live_hits = 0
+    for opt, strike, key_p, key_e, live_key in (
+        ("CE", ce_strike, "ce_premium", "ce_exit", "ce_live"),
+        ("PE", pe_strike, "pe_premium", "pe_exit", "pe_live"),
     ):
         inst = _find_option_token(kite, index, expiry, strike, opt)
         if not inst:
@@ -318,33 +351,43 @@ def _live_option_pnl_legs(
         bars = _option_minute_bars(kite, int(inst["instrument_token"]), expiry)
         entry, exit_px, detail = _premium_from_bars(bars, detect_ts)
         if entry is None:
-            details.append(f"{opt}{strike}:no_bars")
+            details.append(f"{opt}{strike}:{detail or 'no_bars'}")
             continue
         out[key_p] = entry
         out[key_e] = exit_px
+        out[live_key] = True
+        live_hits += 1
         details.append(f"{inst['tradingsymbol']}:{detail}")
 
+    # Only use BS when that specific leg has no Kite tape — never invent floors.
     if out["ce_premium"] is None:
         out["ce_premium"] = cas_entry_premium(
             close_px, ce_strike, "CE", strike_gap, iv, entry_minutes, 0.0
         )
         out["ce_exit"] = intrinsic(close_px, ce_strike, "CE")
-        details.append("CE:bs_fallback")
+        details.append("CE:BS_FALLBACK_NO_KITE_BARS")
     if out["pe_premium"] is None:
         out["pe_premium"] = cas_entry_premium(
             close_px, pe_strike, "PE", strike_gap, iv, entry_minutes, 0.0
         )
         out["pe_exit"] = intrinsic(close_px, pe_strike, "PE")
-        details.append("PE:bs_fallback")
+        details.append("PE:BS_FALLBACK_NO_KITE_BARS")
 
-    if any("close=" in d for d in details):
+    if live_hits == 2:
         out["premium_source"] = "kite_option_minute"
+    elif live_hits == 1:
+        out["premium_source"] = "kite_partial+bs"
+    else:
+        out["premium_source"] = "bs_fallback"
     out["detail"] = " | ".join(details)
-    # P&L from short premium — qty lots on CE AND qty lots on PE (hedged)
-    out["pnl"] = (
-        (float(out["ce_premium"]) - float(out["ce_exit"]))
-        + (float(out["pe_premium"]) - float(out["pe_exit"]))
-    ) * qty
+    ce_decay = float(out["ce_premium"]) - float(out["ce_exit"])
+    pe_decay = float(out["pe_premium"]) - float(out["pe_exit"])
+    out["ce_decay"] = ce_decay
+    out["pe_decay"] = pe_decay
+    out["decay_points"] = ce_decay + pe_decay
+    # qty = lots × lot_size on EACH leg
+    out["pnl"] = (ce_decay + pe_decay) * qty
+    out["total_decay"] = out["pnl"]
     return out
 
 
@@ -524,8 +567,9 @@ def run_ws_backtest(
             f"{cfg.ce_otm_steps} PE={cfg.pe_otm_steps}."
         ),
         (
-            "Entry premium: Kite option minute CLOSE at the CAS-print minute "
-            "(not the pre-print open). Exit = last available option bar."
+            "Entry premium = last LIVE Kite option minute close BEFORE the CAS-print "
+            "minute (not the collapsed ~₹1 close). Exit = last Kite bar after print. "
+            "No static floors."
         ),
         "Close priority: manual override → Kite daily/minute → synthetic (last resort).",
     ]
@@ -674,6 +718,8 @@ def run_ws_backtest(
                 pnl = float(legs["pnl"])
                 premium_source = str(legs["premium_source"])
                 prem_detail = str(legs["detail"])
+                ce_decay = float(legs["ce_decay"])
+                pe_decay = float(legs["pe_decay"])
             else:
                 ce_p = cas_entry_premium(
                     close_px, ce_k, "CE", gap, cfg.assumed_iv, cfg.entry_time_minutes, 0.0
@@ -683,11 +729,16 @@ def run_ws_backtest(
                 )
                 ce_s = intrinsic(close_px, ce_k, "CE")
                 pe_s = intrinsic(close_px, pe_k, "PE")
-                pnl = ((ce_p - ce_s) + (pe_p - pe_s)) * qty
+                ce_decay = ce_p - ce_s
+                pe_decay = pe_p - pe_s
+                pnl = (ce_decay + pe_decay) * qty
                 premium_source = "bs_fallback"
-                prem_detail = "no kite session"
+                prem_detail = "NO_KITE_SESSION — not live option tape"
+                notes.append(
+                    f"{d} {index}: NO Kite session — premiums are BS estimates, not live."
+                )
 
-            decay_points = (ce_p - ce_s) + (pe_p - pe_s)
+            decay_points = ce_decay + pe_decay
             total_decay = decay_points * qty
 
             equity += pnl
@@ -713,6 +764,8 @@ def run_ws_backtest(
                     pnl=round(pnl, 2),
                     decay_points=round(decay_points, 2),
                     total_decay=round(total_decay, 2),
+                    ce_decay=round(ce_decay, 2),
+                    pe_decay=round(pe_decay, 2),
                     ticks_replayed=n,
                     trigger=trigger,
                     data_source=data_source,
@@ -724,9 +777,11 @@ def run_ws_backtest(
                     detect_to_pe_ms=float(timing.detect_to_pe_ms or 0),
                     detect_to_done_ms=float(timing.detect_to_done_ms or 0),
                     note=(
-                        f"SELL {trade_lots} lot CE {ce_k} @₹{ce_p:.2f} → exit ₹{ce_s:.2f}; "
-                        f"SELL {trade_lots} lot PE {pe_k} @₹{pe_p:.2f} → exit ₹{pe_s:.2f}; "
-                        f"qty/leg={qty}; decay_pts={decay_points:.2f}; "
+                        f"SELL {trade_lots}× CE{ce_k} @₹{ce_p:.2f}→₹{ce_s:.2f} "
+                        f"(decay ₹{ce_decay:.2f}×{qty}=₹{ce_decay*qty:.0f}); "
+                        f"SELL {trade_lots}× PE{pe_k} @₹{pe_p:.2f}→₹{pe_s:.2f} "
+                        f"(decay ₹{pe_decay:.2f}×{qty}=₹{pe_decay*qty:.0f}); "
+                        f"total_decay=₹{total_decay:.0f}; "
                         f"spot={data_source}; prem={premium_source}; detect={cas_src}; {prem_detail}"
                     ),
                 )

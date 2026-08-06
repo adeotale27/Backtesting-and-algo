@@ -210,9 +210,11 @@ def test_infer_cas_detect_and_premium_uses_minute_close():
         },
     ]
     entry, exit_px, detail = _premium_from_bars(bars, ts)
-    assert entry == 1.2  # minute CLOSE after CAS print — not open 102.3
+    # Entry = last live close BEFORE CAS minute (15:28 = 102.3), NOT collapsed 1.2
+    assert entry == 102.3
     assert exit_px == 0.15
-    assert "open=102.30" in detail
+    assert "pre_cas_close=102.30" in detail
+    assert "cas_min@15:29" in detail
 
 
 def test_cas_premium_bs_fallback_no_floor():
