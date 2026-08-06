@@ -154,6 +154,7 @@ class StrikeCache:
         ce_steps: int,
         pe_steps: int,
     ) -> List[Leg]:
+        """Hot-path strike resolve — same otm_strikes() rule as backtest. Prefers cache."""
         t0 = time.perf_counter()
         meta = INDEX_META[index]
         gap = int(meta["strike_gap"])
@@ -167,15 +168,16 @@ class StrikeCache:
             key = (index, opt, strike)
             leg = self._legs.get(key)
             if leg is None:
+                # Cache miss — last resort lookup (should be rare after prewarm)
                 leg = self._lookup(kite, index, prefix, strike, opt)
                 if leg:
                     self._legs[key] = leg
             if leg is None:
-                raise RuntimeError(f"Missing {index} {opt} {strike}")
+                raise RuntimeError(f"Missing {index} {opt} {strike} — prewarm incomplete")
             out.append(leg)
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info(
-            "Resolved %s ATM=%s CE=%s PE=%s in %.2fms",
+            "Resolved %s ATM=%s CE=%s PE=%s in %.2fms (MARKET path)",
             index,
             atm,
             out[0].tradingsymbol,

@@ -244,6 +244,43 @@ def test_configurable_lots_in_config(tmp_path):
     assert cfg.pe_otm_steps == 1
 
 
+def test_parallel_market_sell_both_legs(tmp_path):
+    """Live fire path: both legs MARKET SELL without waiting sequentially."""
+    from cas_rule_expiry_automation.order_engine import OrderEngine
+    from cas_rule_expiry_automation.strike_resolver import Leg
+    from cas_rule_expiry_automation.timing import new_detect_event
+    import time
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def place_market_sell(self, **kwargs):
+            self.calls.append(kwargs)
+            time.sleep(0.01)  # simulate RTT
+            return f"OID-{kwargs['tradingsymbol']}"
+
+    client = FakeClient()
+    eng = OrderEngine(client, lots=2, product="NRML", live_trading=True)
+    legs = [
+        Leg("SENSEX", "CE", 79000, "SENSEX2680679000CE", "BFO", 1, 20),
+        Leg("SENSEX", "PE", 78900, "SENSEX2680678900PE", "BFO", 2, 20),
+    ]
+    timing = new_detect_event("SENSEX", 78954.76, "test", source="test")
+    t0 = time.perf_counter()
+    fills, timing = eng.sell_otm(legs, 78954.76, "test", t0, timing=timing)
+    elapsed = (time.perf_counter() - t0) * 1000
+    assert len(fills) == 2
+    assert {f.opt_type for f in fills} == {"CE", "PE"}
+    assert all(f.quantity == 40 for f in fills)  # 2 lots × 20
+    assert all("MARKET" in f.trigger for f in fills)
+    assert len(client.calls) == 2
+    assert all(c.get("live") is True for c in client.calls)
+    assert timing.ce_sold_at and timing.pe_sold_at
+    # Parallel: wall time ~ one RTT, not two sequential RTTs
+    assert elapsed < 25, f"expected parallel ~10ms, got {elapsed:.1f}ms"
+
+
 def test_app_login_page(tmp_path):
     # Point config via ensuring package config exists from example
     from cas_rule_expiry_automation.config import ensure_config

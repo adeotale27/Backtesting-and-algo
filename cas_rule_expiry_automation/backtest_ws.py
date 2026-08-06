@@ -506,26 +506,28 @@ def _simulate_sells(
     pe_strike: int,
     trigger: str,
 ) -> TimingEvent:
-    """Stamp CE/PE sell times relative to detect (measures local path latency)."""
+    """Model live path: CAS detect → parallel MARKET SELL both legs ASAP."""
     timing = new_detect_event(
         index, close_px, trigger, source="backtest", detected_at=detect_iso
     )
     base = datetime.fromisoformat(detect_iso)
 
-    ce_at = time.perf_counter()
-    ce_ms = max((ce_at - detect_perf) * 1000.0, 0.05)
-    timing.detect_to_ce_ms = round(ce_ms, 3)
-    timing.ce_sold_at = (base + timedelta(milliseconds=ce_ms)).isoformat(timespec="milliseconds")
+    # Parallel punches — both legs stamped nearly together (same as live ThreadPool)
+    done_at = time.perf_counter()
+    ms = max((done_at - detect_perf) * 1000.0, 0.05)
+    timing.detect_to_ce_ms = round(ms, 3)
+    timing.detect_to_pe_ms = round(ms + 0.02, 3)  # tiny scheduling skew
+    timing.ce_sold_at = (base + timedelta(milliseconds=timing.detect_to_ce_ms)).isoformat(
+        timespec="milliseconds"
+    )
+    timing.pe_sold_at = (base + timedelta(milliseconds=timing.detect_to_pe_ms)).isoformat(
+        timespec="milliseconds"
+    )
     timing.ce_symbol = f"{index}{ce_strike}CE"
-
-    pe_at = time.perf_counter()
-    pe_ms = max((pe_at - detect_perf) * 1000.0, ce_ms + 0.05)
-    timing.detect_to_pe_ms = round(pe_ms, 3)
-    timing.pe_sold_at = (base + timedelta(milliseconds=pe_ms)).isoformat(timespec="milliseconds")
     timing.pe_symbol = f"{index}{pe_strike}PE"
     timing.detect_to_done_ms = timing.detect_to_pe_ms
     timing.dry_run = True
-    timing.extra = {"path": "ws_backtest_replay"}
+    timing.extra = {"path": "ws_backtest_replay", "order_type": "MARKET", "parallel": True}
     return timing
 
 

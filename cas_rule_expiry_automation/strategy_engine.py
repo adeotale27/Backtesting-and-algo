@@ -125,21 +125,28 @@ class StrategyEngine:
         trigger: str,
         source: str = "live",
     ) -> list:
+        """CAS detect → cached strikes → parallel MARKET SELL CE+PE (same path as backtest intent)."""
         with self._lock:
             if index in self._firing or self.store.has_fired(index):
                 return []
             self._firing.add(index)
 
+        # Keep order engine in sync with latest live/lots settings
+        self.orders.lots = self.config.lots
+        self.orders.product = self.config.product
+        self.orders.live_trading = self.config.live_trading
+
         timing = new_detect_event(index, close_price, trigger, source=source)
         t0 = time.perf_counter()
         logger.info(
-            "CAS DETECTED %s close=%.2f at %s trigger=%s",
+            "CAS DETECTED %s close=%.2f at %s trigger=%s → MARKET SELL both legs",
             index,
             close_price,
             timing.cas_detected_at,
             trigger,
         )
         try:
+            # Hot path: resolve from pre-warm cache only (otm_strikes same as backtest)
             legs = self.cache.resolve(
                 self.client.kite,
                 index,
@@ -152,11 +159,12 @@ class StrategyEngine:
             )
             self.store.mark_fired(index, close_price, fills, timing=timing)
             logger.info(
-                "FIRE done %s detect→done=%sms CE=%sms PE=%sms",
+                "FIRE done %s detect→done=%sms CE=%sms PE=%sms live=%s",
                 index,
                 timing.detect_to_done_ms if timing else "?",
                 timing.detect_to_ce_ms if timing else "?",
                 timing.detect_to_pe_ms if timing else "?",
+                self.config.live_trading,
             )
             return fills
         except Exception as exc:

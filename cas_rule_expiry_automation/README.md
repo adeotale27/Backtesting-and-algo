@@ -11,7 +11,8 @@ WebSocket-first Zerodha algo for SEBI’s **Closing Auction Session** (CAS).
 
 When armed, KiteTicker (`MODE_FULL`) streams the index. The instant
 `ohlc.close` flips to today’s CAS print (or optional LTP-in-window mode),
-the app market-sells the **OTM** Call + Put that collapse to ~0 at settlement:
+the app **MARKET SELLs** the OTM Call + Put **in parallel** (same millisecond
+window) — no limit price, no quote round-trip on the fire path:
 
 | Spot vs ATM | CE sold | PE sold |
 |-------------|---------|---------|

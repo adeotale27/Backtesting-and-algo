@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from typing import Any, Optional
 
 from cas_rule_expiry_automation.config import AppConfig, load_config, save_kite_credentials
@@ -92,24 +93,45 @@ class KiteClient:
         tag: str = "CASRULE",
         live: bool = False,
     ) -> Any:
+        """Punch a MARKET SELL immediately (no limit price, no quote round-trip)."""
         if not self.kite:
             self.connect()
         if not live:
             logger.warning(
-                "[DRY-RUN] SELL %s x%d %s/%s", tradingsymbol, quantity, exchange, product
+                "[DRY-RUN] MARKET SELL %s x%d %s/%s",
+                tradingsymbol,
+                quantity,
+                exchange,
+                product,
             )
-            return -1
-        return self.kite.place_order(
+            return f"DRY-{tradingsymbol}-{int(time.time()*1000)%100000}"
+
+        # Explicit MARKET params — never LIMIT / SL / price.
+        params = dict(
             variety=self.kite.VARIETY_REGULAR,
             exchange=exchange,
             tradingsymbol=tradingsymbol,
             transaction_type=self.kite.TRANSACTION_TYPE_SELL,
-            quantity=quantity,
+            quantity=int(quantity),
             product=product,
             order_type=self.kite.ORDER_TYPE_MARKET,
-            tag=tag[:20],
-            market_protection=getattr(self.kite, "MARKET_PROTECTION_AUTO", -1),
+            validity=self.kite.VALIDITY_DAY,
+            price=0,
+            trigger_price=0,
+            tag=(tag or "CASRULE")[:20],
         )
+        # BFO/NFO market protection when SDK supports it
+        mp = getattr(self.kite, "MARKET_PROTECTION_AUTO", None)
+        if mp is not None:
+            params["market_protection"] = mp
+        logger.info(
+            "Kite place_order MARKET SELL %s/%s x%d product=%s",
+            exchange,
+            tradingsymbol,
+            quantity,
+            product,
+        )
+        return self.kite.place_order(**params)
 
     @staticmethod
     def _parent_token() -> Optional[str]:
