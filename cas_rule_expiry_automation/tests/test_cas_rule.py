@@ -408,6 +408,28 @@ def test_ws_heartbeat_does_not_persist(tmp_path):
     assert store.snapshot()["last_ltp"]["SENSEX"] == 79000.5
 
 
+def test_baseline_once_ltp_only_when_cas_active(tmp_path):
+    """Last close set once; LTP ignored until CAS window is activated."""
+    from cas_rule_expiry_automation.state import StateStore
+
+    store = StateStore(str(tmp_path / "rt.json"))
+    store.set_baseline("NIFTY", 24800.5)
+    store.set_baseline("SENSEX", 81100.0)
+    # LTP must not stick while CAS is OFF
+    store.set_ltp("NIFTY", 24999.0)
+    assert store.snapshot()["last_ltp"] == {}
+    assert store.snapshot()["baseline_close"]["NIFTY"] == 24800.5
+    assert store.snapshot()["baseline_close"]["SENSEX"] == 81100.0
+
+    store.activate("test")
+    store.set_ltp("NIFTY", 24999.0)
+    assert store.snapshot()["last_ltp"]["NIFTY"] == 24999.0
+    store.deactivate("test")
+    assert store.snapshot()["last_ltp"] == {}
+    # Baseline survives deactivate
+    assert store.snapshot()["baseline_close"]["NIFTY"] == 24800.5
+
+
 def test_ws_tick_fires_immediately_not_on_chart_time(tmp_path):
     """Live path: ohlc.close flip on a WS tick starts sell (no 15:29:30 wait)."""
     from cas_rule_expiry_automation.strategy_engine import StrategyEngine
