@@ -149,7 +149,7 @@ class KiteClient:
           - do NOT send price (LIMIT-only) or trigger_price (SL/SL-M only)
           - market_protection is required (-1 = auto); protection=0 is rejected
 
-        Matches common_lib.place_order_market / cas_expiry kite_session.
+        Matches Kite Connect MARKET place_order (no price/trigger_price).
         SDK strips None kwargs before POST.
         """
         if not self.kite:

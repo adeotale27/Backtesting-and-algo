@@ -31,15 +31,15 @@ Default is **dry-run**. Read the repo `DISCLAIMER.md` before live trading.
 
 ## Quick start
 
-```bash
-cd /path/to/repo
-pip install -r requirements.txt
-pip install -r cas_rule_expiry_automation/requirements.txt
+See the **repo root `README.md`** (this is a CAS-only solo branch).
 
+```bash
+pip install -r requirements.txt
 cp cas_rule_expiry_automation/config.ini.example cas_rule_expiry_automation/config.ini
-# set api_key, api_secret, admin password, lots
+# edit config.ini — api_key, api_secret, admin password, lots
 
 python -m cas_rule_expiry_automation
+# → http://127.0.0.1:5030
 ```
 
 Open **http://127.0.0.1:5030**

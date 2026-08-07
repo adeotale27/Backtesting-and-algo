@@ -1,11 +1,6 @@
-# --- secrets & runtime state: NEVER commit these ---
-configfile.ini
-cas_expiry/config.ini
-cas_expiry/runtime_state.json
+# --- secrets & runtime: NEVER commit ---
 cas_rule_expiry_automation/config.ini
 cas_rule_expiry_automation/runtime_state.json
-.flask_secret
-.kite_session_token*
 *.pem
 *.key
 *.env
@@ -16,16 +11,10 @@ cas_rule_expiry_automation/runtime_state.json
 *.db-wal
 *.sqlite*
 instruments.db*
-trade_journal.db*
-api_monitor.db*
 
-# logs & order state
+# logs
 *.log
 logs/
-survivor_logs/
-status/
-delta_limits.json
-scalping_strategy_config.json
 
 # python
 __pycache__/
@@ -35,9 +24,7 @@ build/
 dist/
 venv/
 .venv/
-
-# docs build
-site/
+.pytest_cache/
 
 # editors / OS
 .vscode/

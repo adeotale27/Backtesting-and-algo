@@ -1,8 +1,7 @@
 # CAS Rule Expiry Automation
 #
-# Lightweight Flask admin + Zerodha KiteTicker WebSocket algo.
-# Parent repo already provides kiteconnect via ./vendor/pykiteconnect
-# and flask/waitress via requirements.txt.
+# Install from repo root:
+#   pip install -r requirements.txt
 
 flask>=3.0
 waitress>=3.0

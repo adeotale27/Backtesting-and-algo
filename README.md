@@ -1,105 +1,131 @@
-# UI Trading System
+# CAS Rule Expiry Automation (solo)
 
-A self-hosted algorithmic options-trading dashboard for NIFTY and SENSEX,
-built on the [Zerodha Kite Connect API](https://kite.trade). Flask web UI,
-real-time positions with Greeks, GTT monitoring, and several automated
-strategies (gap trading, survivor, expiry trades) — everything runs on your
-own machine against your own Zerodha account.
+**This branch contains only the CAS Rule algo** — no Survivor, Jodi, covered calls, or other strategies.
 
-> ## ⚠️ Read First
->
-> **This software can trade real money.** It is experimental, may contain
-> bugs, and may not behave as intended. The authors accept **no
-> responsibility for any financial loss** caused by using it. Fresh installs
-> start in **dry-run mode** (orders are simulated, nothing reaches the
-> broker) — read **[DISCLAIMER.md](DISCLAIMER.md)** in full before enabling
-> live trading.
+WebSocket-first Zerodha automation for SEBI’s **Closing Auction Session (CAS)**:
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+| Weekday | Index |
+|---------|--------|
+| Tuesday | NIFTY |
+| Thursday | SENSEX |
 
-## Features
+When the CAS window is **Activated**, KiteTicker streams the index. The moment
+`ohlc.close` flips to today’s CAS close, the app **MARKET SELLs** OTM CE + PE
+**in parallel** (no limit price).
 
-| Module | What it does |
-|--------|--------------|
-| **Positions** | Live NIFTY/SENSEX option positions with delta/theta Greeks and margin (embedded Black-Scholes) |
-| **Wave Extractor** | Gap-trading automation: linked BUY+SELL order pairs re-placed as price waves move |
-| **Survivor** | Single-leg index strategy with delta-based rebalancing |
-| **Expiry Trade** | Expiry-day strategy on 3-minute candles with Stochastic RSI signals |
-| **Early Exit** | Pre-market fair-value GTT exit orders for NIFTY/SENSEX options |
-| **GTT Monitor** | Watches GTT triggers, detects duplicates, suppresses stale orders when market is closed |
-| **Position Guard** | Flags symbols with unreviewed long exposure across positions, orders, and GTTs |
-| **Trade Journal** | FIFO buy/sell pairing, per-algo P&L attribution, Zerodha reconciliation |
-| **Covered Calls** | Sell OTM calls against held equity to earn premium |
-| **CAS Expiry** | Standalone SEBI Closing Auction Session algo (`cas_expiry/`) — low-latency ATM±1 CE/PE sells when the official close prints |
-| **CAS Rule Expiry Automation** | WebSocket-first expiry algo (`cas_rule_expiry_automation/`) — Tue NIFTY / Thu SENSEX, configurable lots, light UI |
-| **Notifications** | Telegram bot + browser Web Push for fills, margin alerts, and system events |
-| **API Monitor** | Every Kite API call logged with caller, latency, and errors |
+Default mode is **PAPER** (real Kite data, no orders sent). Read `DISCLAIMER.md`
+before switching to live orders.
 
-## Requirements
+---
 
-- Python 3.11+
-- A Zerodha account with a [Kite Connect](https://developers.kite.trade/)
-  app subscription (paid; needed for the API key/secret)
+## 1. Setup (Windows / PowerShell)
 
-## Quickstart
+```powershell
+cd C:\Users\USER\OneDrive\Desktop\cas\Backtesting-and-algo
 
-```bash
-git clone https://github.com/Raahi-Bhushan/ui-trading-system.git
-cd ui-trading-system
-python -m venv venv && source venv/bin/activate
+# Use this solo branch
+git fetch origin cas-solo-only
+git checkout cas-solo-only
+git reset --hard origin/cas-solo-only
+
+# Virtualenv (recommended)
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Dependencies
 pip install -r requirements.txt
-
-python flask_app.py
 ```
 
-Open <http://127.0.0.1:5010/> — a **setup wizard** walks you through the
-Kite API credentials and dashboard login, then writes `configfile.ini` for
-you. Restart the app and log in.
+## 2. Config
 
-The app binds to `127.0.0.1` only. **Never expose it to the internet
-without a TLS-terminating reverse proxy in front** — see the
-[security notes](docs/security.md).
-
-## Dry-run vs live trading
-
-New installs run with `[safety] live_trading = false`: every order-placement
-call is logged with full details but **nothing is sent to Zerodha**. The
-header shows a 🟡 DRY-RUN badge. When you are ready, set
-`live_trading = true` in `configfile.ini` and restart — the badge turns
-🔴 LIVE.
-
-## Documentation
-
-Full docs (configuration reference, architecture, per-module guides, FAQ)
-live in [`docs/`](docs/) and are published as a website — see the repository
-description for the hosted URL.
-
-## Using the core library without the dashboard
-
-The trading primitives (order placement with retries, instrument cache,
-Greeks, GTT monitoring) are pip-installable:
-
-```bash
-pip install .
-python -c "import instrument_cache, positions_lib, greeks_lib"
+```powershell
+copy cas_rule_expiry_automation\config.ini.example cas_rule_expiry_automation\config.ini
+notepad cas_rule_expiry_automation\config.ini
 ```
 
-## Tests
+Set at least:
 
-```bash
-pytest tests/
+```ini
+[kite]
+api_key = YOUR_KITE_API_KEY
+api_secret = YOUR_KITE_API_SECRET
+access_token =
+
+[admin]
+username = admin
+password = CHANGE_ME
+
+[strategy]
+lots = 1
+product = NRML
+
+[safety]
+live_trading = false
+paper_any_day = true
 ```
 
-Tests use real SQLite (no DB mocking) — see
-[CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
+`config.ini` is gitignored — never commit it.
 
-## Contributing & Security
+## 3. Run
 
-- Contributions welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-- Found a vulnerability? Please follow [SECURITY.md](SECURITY.md) instead of
-  opening a public issue.
+```powershell
+python -m cas_rule_expiry_automation
+```
 
-## License
+Open: **http://127.0.0.1:5030**
 
-[MIT](LICENSE) — with the additional trading-risk terms in
-[DISCLAIMER.md](DISCLAIMER.md). Not affiliated with Zerodha.
+Login with the admin username/password from `config.ini`.
+
+## 4. Daily use (Live page)
+
+1. Click **Kite API** → paste today’s `access_token` → save  
+2. Confirm **PAPER** (or switch to LIVE only when you intend real orders)  
+3. Set **Lots per leg** (e.g. 10 → sells 10 CE + 10 PE)  
+4. Click **Activate CAS window**  
+   - **Last close** was pulled once at app start  
+   - **LTP** starts streaming only after Activate  
+5. On close flip (~15:28–15:30 IST) → parallel MARKET CE+PE  
+6. **Deactivate** when done (stops WebSocket / clears LTP)
+
+Paper works on non-expiry days too (`paper_any_day=true`).  
+**LIVE** money still waits for Tue NIFTY / Thu SENSEX when `expiry_only=true`.
+
+## 5. Backtest page
+
+Top nav → **Backtest** → pick dates (defaults to today) → Run.  
+Same strike + MARKET path as live; no orders are sent.
+
+## 6. Tests
+
+```powershell
+$env:PYTHONPATH="."
+python -m pytest cas_rule_expiry_automation/tests/ -q
+```
+
+## 7. What this repo contains
+
+```
+cas_rule_expiry_automation/   # the only strategy
+vendor/pykiteconnect/         # Zerodha Kite Connect SDK (vendored)
+README.md                     # this file
+DISCLAIMER.md
+LICENSE
+requirements.txt
+```
+
+Everything else (Survivor, place_order_at_*, flask_app, covered calls, etc.)
+was removed from **cas-solo-only**.
+
+## Strike rule (reminder)
+
+| Spot vs ATM | CE sold | PE sold |
+|-------------|---------|---------|
+| Spot **below** ATM | **ATM CE** | ATM − N |
+| Spot **above** ATM | ATM + N | **ATM PE** |
+| Spot **exact** ATM | ATM + N | ATM − N |
+
+## Safety
+
+- `live_trading = false` by default (PAPER)  
+- MARKET orders use `market_protection=-1` (AUTO); no `price` / `trigger_price`  
+- Prefer a Mumbai VPS (`ap-south-1`) for lowest practical latency to Zerodha  
