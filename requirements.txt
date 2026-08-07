@@ -1,9 +1,22 @@
 # CAS Rule Expiry Automation — solo install
+#
+#   pip install -r requirements.txt
+#
+# kiteconnect itself is loaded from ./vendor/pykiteconnect;
+# the packages below are its runtime dependencies (+ Flask UI).
 
 flask>=3.0
 waitress>=3.0
 pytest>=7.0
 
-# kiteconnect is loaded from ./vendor/pykiteconnect (no pip needed).
-# Optional if you prefer PyPI instead of vendor:
-# kiteconnect>=4.0
+# --- kiteconnect / KiteTicker (vendor/pykiteconnect) ---
+six>=1.11.0
+requests>=2.18.4
+python-dateutil>=2.6.1
+pyOpenSSL>=17.5.0
+service-identity>=18.1.0
+autobahn[twisted]==19.11.2
+Twisted>=22.0.0
+
+# Windows Twisted reactor helper (ignored on other OS)
+pywin32>=227; sys_platform == "win32"

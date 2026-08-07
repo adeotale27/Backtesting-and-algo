@@ -40,6 +40,8 @@ class AutomationEngine:
         self._last_ws_status_at: float = 0.0
         self._baselines_pulled = False
         self._baselines_day: Optional[str] = None
+        self._dep_error_logged = False
+        self._next_retry_at: float = 0.0
 
     @property
     def running(self) -> bool:
@@ -68,6 +70,8 @@ class AutomationEngine:
         self._indexes_cache = []
         # New token may allow a baseline pull that previously failed
         self._baselines_pulled = False
+        self._dep_error_logged = False
+        self._next_retry_at = 0.0
         if self.strategy:
             self.strategy.config = self.config
             self.strategy.orders.lots = self.config.lots
@@ -142,7 +146,14 @@ class AutomationEngine:
                     )
             self._baselines_pulled = True
         except Exception as exc:
-            logger.warning("Startup baseline pull skipped: %s", exc)
+            msg = str(exc)
+            # Missing deps / auth — don't spam every second
+            if not self._dep_error_logged:
+                logger.warning("Startup baseline pull skipped: %s", msg)
+                self._dep_error_logged = True
+            if "No module named" in msg or "Missing Python packages" in msg:
+                self._next_retry_at = time.monotonic() + 30.0
+            # else retry soon (token may appear after UI paste)
 
     def _ensure_strategy(self) -> StrategyEngine:
         if self.strategy is None:
@@ -187,10 +198,14 @@ class AutomationEngine:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
+                now_mono = time.monotonic()
+                if now_mono < self._next_retry_at:
+                    time.sleep(min(1.0, self._next_retry_at - now_mono))
+                    continue
+
                 # Always: pull Last close once per day at app start (not LTP)
                 self._pull_baselines_once()
 
-                now_mono = time.monotonic()
                 if now_mono - self._last_ws_status_at >= 0.5:
                     self._last_ws_status_at = now_mono
                     self.store.set_ws(
@@ -236,8 +251,20 @@ class AutomationEngine:
                 else:
                     time.sleep(0.5)
             except Exception as exc:
+                msg = str(exc)
+                if "No module named" in msg or "Missing Python packages" in msg:
+                    if not self._dep_error_logged:
+                        logger.error(
+                            "Kite dependency missing — install requirements then restart.\n%s",
+                            msg,
+                        )
+                        self._dep_error_logged = True
+                        self.store.set_error(msg)
+                    self._next_retry_at = time.monotonic() + 30.0
+                    time.sleep(1.0)
+                    continue
                 logger.exception("engine loop: %s", exc)
-                self.store.set_error(str(exc))
+                self.store.set_error(msg)
                 time.sleep(2)
 
 

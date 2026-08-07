@@ -34,6 +34,9 @@ python -m venv venv
 
 # Dependencies
 pip install -r requirements.txt
+# Must include: six, requests, Twisted, autobahn, pyOpenSSL, …
+# If you still see "No module named 'six'", your venv is missing deps:
+#   pip install six requests python-dateutil pyOpenSSL service-identity "autobahn[twisted]==19.11.2" Twisted
 ```
 
 ## 2. Config

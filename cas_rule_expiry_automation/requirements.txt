@@ -1,7 +1,15 @@
-# CAS Rule Expiry Automation
+# CAS Rule package deps (same as repo root requirements.txt)
 #
-# Install from repo root:
+# Prefer from repo root:
 #   pip install -r requirements.txt
 
 flask>=3.0
 waitress>=3.0
+six>=1.11.0
+requests>=2.18.4
+python-dateutil>=2.6.1
+pyOpenSSL>=17.5.0
+service-identity>=18.1.0
+autobahn[twisted]==19.11.2
+Twisted>=22.0.0
+pywin32>=227; sys_platform == "win32"

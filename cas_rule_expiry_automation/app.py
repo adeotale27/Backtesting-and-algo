@@ -361,6 +361,15 @@ def api_backtest():
 
 
 def main() -> None:
+    from cas_rule_expiry_automation.deps import ensure_kite_deps
+
+    try:
+        ensure_kite_deps()
+    except RuntimeError as exc:
+        logger.error("%s", exc)
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
+
     cfg = _cfg()
     eng = get_engine()
     eng.start()

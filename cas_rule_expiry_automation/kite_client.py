@@ -9,6 +9,7 @@ import time
 from typing import Any, Optional
 
 from cas_rule_expiry_automation.config import AppConfig, load_config, save_kite_credentials
+from cas_rule_expiry_automation.deps import ensure_kite_deps
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ for p in (_ROOT, _VENDOR):
 
 
 def _KiteConnect():
+    ensure_kite_deps()
     from kiteconnect import KiteConnect
 
     return KiteConnect

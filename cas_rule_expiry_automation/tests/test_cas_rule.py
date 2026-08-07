@@ -431,6 +431,16 @@ def test_previous_session_close_skips_today_bar():
     assert client.previous_session_close(265, asof=date(2026, 8, 6)) == 78581.0
 
 
+def test_kite_deps_helper_lists_and_passes():
+    from cas_rule_expiry_automation.deps import ensure_kite_deps, missing_kite_packages
+
+    # In a healthy env this should be empty / succeed
+    missing = missing_kite_packages()
+    assert isinstance(missing, list)
+    if not missing:
+        ensure_kite_deps()  # must not raise
+
+
 def test_baseline_once_ltp_only_when_cas_active(tmp_path):
     """Last close set once; LTP ignored until CAS window is activated."""
     from cas_rule_expiry_automation.state import StateStore
